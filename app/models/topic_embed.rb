@@ -64,38 +64,43 @@ class TopicEmbed < ActiveRecord::Base
 
     url = normalize_url(url)
     original_uri = URI.parse(url)
-    opts = {
-      tags: %w[div p code pre h1 h2 h3 b em i strong a img ul li ol blockquote],
-      attributes: %w[href src],
-      remove_empty_nodes: false
-    }
+    begin
+      opts = {
+        tags: %w[div p code pre h1 h2 h3 b em i strong a img ul li ol blockquote],
+        attributes: %w[href src],
+        remove_empty_nodes: false
+      }
 
-    opts[:whitelist] = SiteSetting.embed_whitelist_selector if SiteSetting.embed_whitelist_selector.present?
-    opts[:blacklist] = SiteSetting.embed_blacklist_selector if SiteSetting.embed_blacklist_selector.present?
+      opts[:whitelist] = SiteSetting.embed_whitelist_selector if SiteSetting.embed_whitelist_selector.present?
+      opts[:blacklist] = SiteSetting.embed_blacklist_selector if SiteSetting.embed_blacklist_selector.present?
 
-    doc = Readability::Document.new(open(url).read, opts)
+      doc = Readability::Document.new(open(url).read, opts)
 
-    tags = {'img' => 'src', 'script' => 'src', 'a' => 'href'}
-    title = doc.title
-    doc = Nokogiri::HTML(doc.content)
-    doc.search(tags.keys.join(',')).each do |node|
-      url_param = tags[node.name]
-      src = node[url_param]
-      unless (src.nil? || src.empty?)
-        begin
-          uri = URI.parse(src)
-          unless uri.host
-            uri.scheme = original_uri.scheme
-            uri.host = original_uri.host
-            node[url_param] = uri.to_s
+      tags = {'img' => 'src', 'script' => 'src', 'a' => 'href'}
+      title = doc.title
+      doc = Nokogiri::HTML(doc.content)
+      doc.search(tags.keys.join(',')).each do |node|
+        url_param = tags[node.name]
+        src = node[url_param]
+        unless (src.nil? || src.empty?)
+          begin
+            uri = URI.parse(src)
+            unless uri.host
+              uri.scheme = original_uri.scheme
+              uri.host = original_uri.host
+              node[url_param] = uri.to_s
+            end
+          rescue URI::InvalidURIError
+            # If there is a mistyped URL, just do nothing
           end
-        rescue URI::InvalidURIError
-          # If there is a mistyped URL, just do nothing
         end
       end
+      body = doc.to_html
+    rescue
+      title ||= url.ljust(20)
+      body = title.ljust(20)
     end
-
-    [title, doc.to_html]
+    [title, body]
   end
 
   def self.import_remote(user, url, opts=nil)
