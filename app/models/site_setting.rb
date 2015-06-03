@@ -73,6 +73,15 @@ class SiteSetting < ActiveRecord::Base
     embeddable_host.sub(/^https?\:\/\//, '')
   end
 
+  def self.invalid_host?(uri)
+    host = URI(uri).host
+    allowed_host = self.normalized_embeddable_host
+    host != allowed_host && Regexp.new(allowed_host).match(host).nil?
+  rescue URI::InvalidURIError
+    # An invalid URI is an invalid host
+    true
+  end
+
   def self.anonymous_homepage
     top_menu_items.map { |item| item.name }
                   .select { |item| anonymous_menu_items.include?(item) }

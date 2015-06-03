@@ -56,11 +56,7 @@ class EmbedController < ApplicationController
 
       if !(Rails.env.development? && current_user.try(:admin?))
         raise Discourse::InvalidAccess.new('embeddable host not set') if SiteSetting.normalized_embeddable_host.blank?
-        host = URI(request.referer || '').host
-        if host != SiteSetting.normalized_embeddable_host &&
-          Regexp.new(SiteSetting.normalized_embeddable_host).match(host).nil?
-          raise Discourse::InvalidAccess.new('invalid referer host')
-        end
+        raise Discourse::InvalidAccess.new('invalid referer host') if SiteSetting.invalid_host?(request.referer || '')
       end
 
       response.headers['X-Frame-Options'] = "ALLOWALL"

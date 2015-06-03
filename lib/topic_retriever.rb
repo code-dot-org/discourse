@@ -7,17 +7,10 @@ class TopicRetriever
   end
 
   def retrieve
-    perform_retrieve unless (invalid_host? || retrieved_recently?)
+    perform_retrieve unless SiteSetting.invalid_host?(@embed_url) || retrieved_recently?
   end
 
   private
-
-    def invalid_host?
-      SiteSetting.normalized_embeddable_host != URI(@embed_url).host
-    rescue URI::InvalidURIError
-      # An invalid URI is an invalid host
-      true
-    end
 
     def retrieved_recently?
       # We can disable the throttle for some users, such as staff
