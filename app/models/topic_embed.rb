@@ -93,6 +93,8 @@ class TopicEmbed < ActiveRecord::Base
             uri.host = original_uri.host
             node[url_param] = uri.to_s
           end
+        rescue URI::InvalidURIError
+          # If there is a mistyped URL, just do nothing
         end
       end
       # only allow classes in the whitelist
