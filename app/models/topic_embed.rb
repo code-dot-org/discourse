@@ -107,7 +107,8 @@ class TopicEmbed < ActiveRecord::Base
           classnode[:class] = classes.join(' ')
         end
       end
-      body = doc.to_html
+    end
+    body = doc.to_html
     rescue
       title ||= url.ljust(20)
       body = title.ljust(20)
