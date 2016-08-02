@@ -1,8 +1,9 @@
-require 'spec_helper'
+require 'rails_helper'
 
 describe PostAnalyzer do
 
   let(:default_topic_id) { 12 }
+  let(:url) { 'https://twitter.com/evil_trout/status/345954894420787200' }
 
   describe '#cook' do
     let(:post_analyzer) {PostAnalyzer.new nil, nil  }
@@ -11,15 +12,12 @@ describe PostAnalyzer do
     let(:options) { {} }
     let(:args) { [raw, options] }
 
-    let(:url) {
-      'https://twitter.com/evil_trout/status/345954894420787200'
-    }
-
     before { Oneboxer.stubs(:onebox) }
 
     it 'fetches the cached onebox for any urls in the post' do
       Oneboxer.expects(:cached_onebox).with url
       post_analyzer.cook(*args)
+      expect(post_analyzer.found_oneboxes?).to be(true)
     end
 
     it 'does not invalidate the onebox cache' do
@@ -156,6 +154,8 @@ describe PostAnalyzer do
 
     it "finds links from HTML" do
       post_analyzer = PostAnalyzer.new(raw_post_two_links_html, default_topic_id)
+      post_analyzer.cook(raw_post_two_links_html, {})
+      expect(post_analyzer.found_oneboxes?).to be(false)
       expect(post_analyzer.link_count).to eq(2)
     end
   end
@@ -198,9 +198,25 @@ describe PostAnalyzer do
       expect(post_analyzer.raw_mentions).to eq(['finn'])
     end
 
+    it "ignores oneboxes" do
+      post_analyzer = PostAnalyzer.new("Hello @Jake\n#{url}", default_topic_id)
+      post_analyzer.stubs(:cook).returns("<p>Hello <span class=\"mention\">@Jake</span><br><a href=\"https://twitter.com/evil_trout/status/345954894420787200\" class=\"onebox\" target=\"_blank\" rel=\"nofollow\">@Finn</a></p>")
+      expect(post_analyzer.raw_mentions).to eq(['jake'])
+    end
+
     it "handles underscore in username" do
       post_analyzer = PostAnalyzer.new("@Jake @Finn @Jake_Old", default_topic_id)
       expect(post_analyzer.raw_mentions).to eq(['jake', 'finn', 'jake_old'])
+    end
+
+    it "handles hyphen in groupname" do
+      post_analyzer = PostAnalyzer.new("@org-board", default_topic_id)
+      expect(post_analyzer.raw_mentions).to eq(['org-board'])
+    end
+
+    it "ignores emails" do
+      post_analyzer = PostAnalyzer.new("1@test.com 1@best.com @best @not", default_topic_id)
+      expect(post_analyzer.raw_mentions).to eq(['best', 'not'])
     end
   end
 end

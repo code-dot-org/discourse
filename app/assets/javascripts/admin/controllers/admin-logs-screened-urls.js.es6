@@ -1,4 +1,6 @@
+import { exportEntity } from 'discourse/lib/export-csv';
 import { outputExportResult } from 'discourse/lib/export-result';
+import ScreenedUrl from 'admin/models/screened-url';
 
 export default Ember.ArrayController.extend({
   loading: false,
@@ -6,7 +8,7 @@ export default Ember.ArrayController.extend({
   show() {
     const self = this;
     self.set('loading', true);
-    Discourse.ScreenedUrl.findAll().then(function(result) {
+    ScreenedUrl.findAll().then(function(result) {
       self.set('model', result);
       self.set('loading', false);
     });
@@ -14,7 +16,7 @@ export default Ember.ArrayController.extend({
 
   actions: {
     exportScreenedUrlList() {
-      Discourse.ExportCsv.exportScreenedUrlList().then(outputExportResult);
+      exportEntity('screened_url').then(outputExportResult);
     }
   }
 });

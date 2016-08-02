@@ -1,4 +1,4 @@
-require 'spec_helper'
+require 'rails_helper'
 require 'post_creator'
 require 'topic_subtype'
 
@@ -9,10 +9,10 @@ describe PostCreator do
   end
 
   let(:user) { Fabricate(:user) }
+  let(:topic) { Fabricate(:topic, user: user) }
 
   context "new topic" do
     let(:category) { Fabricate(:category, user: user) }
-    let(:topic) { Fabricate(:topic, user: user) }
     let(:basic_topic_params) { {title: "hello world topic", raw: "my name is fred", archetype_id: 1} }
     let(:image_sizes) { {'http://an.image.host/image.jpg' => {"width" => 111, "height" => 222}} }
 
@@ -20,6 +20,12 @@ describe PostCreator do
     let(:creator_with_category) { PostCreator.new(user, basic_topic_params.merge(category: category.id )) }
     let(:creator_with_meta_data) { PostCreator.new(user, basic_topic_params.merge(meta_data: {hello: "world"} )) }
     let(:creator_with_image_sizes) { PostCreator.new(user, basic_topic_params.merge(image_sizes: image_sizes)) }
+
+    it "can create a topic with null byte central" do
+      post = PostCreator.create(user, title: "hello\u0000world this is title", raw: "this is my\u0000 first topic")
+      expect(post.raw).to eq 'this is my first topic'
+      expect(post.topic.title).to eq 'Helloworld this is title'
+    end
 
     it "can be created with auto tracking disabled" do
       p = PostCreator.create(user, basic_topic_params.merge(auto_track: false))
@@ -32,27 +38,29 @@ describe PostCreator do
       expect { creator.create }.to raise_error(Discourse::InvalidAccess)
     end
 
+    context "reply to post number" do
+      it "omits reply to post number if received on a new topic" do
+        p = PostCreator.new(user, basic_topic_params.merge(reply_to_post_number: 3)).create
+        expect(p.reply_to_post_number).to be_nil
+      end
+    end
 
     context "invalid title" do
-
       let(:creator_invalid_title) { PostCreator.new(user, basic_topic_params.merge(title: 'a')) }
 
       it "has errors" do
         creator_invalid_title.create
         expect(creator_invalid_title.errors).to be_present
       end
-
     end
 
     context "invalid raw" do
-
       let(:creator_invalid_raw) { PostCreator.new(user, basic_topic_params.merge(raw: '')) }
 
       it "has errors" do
         creator_invalid_raw.create
         expect(creator_invalid_raw.errors).to be_present
       end
-
     end
 
     context "success" do
@@ -67,6 +75,10 @@ describe PostCreator do
         DiscourseEvent.expects(:trigger).with(:validate_post, anything).once
         DiscourseEvent.expects(:trigger).with(:topic_created, anything, anything, user).once
         DiscourseEvent.expects(:trigger).with(:post_created, anything, anything, user).once
+        DiscourseEvent.expects(:trigger).with(:after_validate_topic, anything, anything).once
+        DiscourseEvent.expects(:trigger).with(:before_create_topic, anything, anything).once
+        DiscourseEvent.expects(:trigger).with(:after_trigger_post_process, anything).once
+        DiscourseEvent.expects(:trigger).with(:markdown_context, anything).at_least_once
         creator.create
       end
 
@@ -138,8 +150,9 @@ describe PostCreator do
       end
 
       it 'extracts links from the post' do
-        TopicLink.expects(:extract_from).with(instance_of(Post))
+        create_post(raw: "this is a link to the best site at https://google.com")
         creator.create
+        expect(TopicLink.count).to eq(1)
       end
 
       it 'queues up post processing job when saved' do
@@ -213,6 +226,21 @@ describe PostCreator do
         }.to_not change { topic.excerpt }
       end
 
+      it 'creates post stats' do
+
+        Draft.set(user, 'new_topic', 0, "test")
+        Draft.set(user, 'new_topic', 0, "test1")
+
+        begin
+          PostCreator.track_post_stats = true
+          post = creator.create
+          expect(post.post_stat.typing_duration_msecs).to eq(0)
+          expect(post.post_stat.drafts_saved).to eq(2)
+        ensure
+          PostCreator.track_post_stats = false
+        end
+      end
+
       describe "topic's auto close" do
 
         it "doesn't update topic's auto close when it's not based on last post" do
@@ -237,6 +265,59 @@ describe PostCreator do
 
       end
 
+      context "tags" do
+        let(:tag_names) { ['art', 'science', 'dance'] }
+        let(:creator_with_tags) { PostCreator.new(user, basic_topic_params.merge(tags: tag_names)) }
+
+        context "tagging disabled" do
+          before do
+            SiteSetting.tagging_enabled = false
+          end
+
+          it "doesn't create tags" do
+            expect { @post = creator_with_tags.create }.to change { Tag.count }.by(0)
+            expect(@post.topic.tags.size).to eq(0)
+          end
+        end
+
+        context "tagging enabled" do
+          before do
+            SiteSetting.tagging_enabled = true
+          end
+
+          context "can create tags" do
+            before do
+              SiteSetting.min_trust_to_create_tag = 0
+              SiteSetting.min_trust_level_to_tag_topics = 0
+            end
+
+            it "can create all tags if none exist" do
+              expect { @post = creator_with_tags.create }.to change { Tag.count }.by( tag_names.size )
+              expect(@post.topic.tags.map(&:name).sort).to eq(tag_names.sort)
+            end
+
+            it "creates missing tags if some exist" do
+              existing_tag1 = Fabricate(:tag, name: tag_names[0])
+              existing_tag1 = Fabricate(:tag, name: tag_names[1])
+              expect { @post = creator_with_tags.create }.to change { Tag.count }.by( tag_names.size - 2 )
+              expect(@post.topic.tags.map(&:name).sort).to eq(tag_names.sort)
+            end
+          end
+
+          context "cannot create tags" do
+            before do
+              SiteSetting.min_trust_to_create_tag = 4
+              SiteSetting.min_trust_level_to_tag_topics = 0
+            end
+
+            it "only uses existing tags" do
+              existing_tag1 = Fabricate(:tag, name: tag_names[1])
+              expect { @post = creator_with_tags.create }.to change { Tag.count }.by(0)
+              expect(@post.topic.tags.map(&:name)).to eq([existing_tag1.name])
+            end
+          end
+        end
+      end
     end
 
     context 'when auto-close param is given' do
@@ -245,6 +326,30 @@ describe PostCreator do
         post = PostCreator.new(user, basic_topic_params.merge(auto_close_time: 2)).create
         expect(post.topic.auto_close_at).to eq(nil)
       end
+    end
+  end
+
+  context 'whisper' do
+    let!(:topic) { Fabricate(:topic, user: user) }
+
+    it 'forces replies to whispers to be whispers' do
+      whisper = PostCreator.new(user,
+                                topic_id: topic.id,
+                                reply_to_post_number: 1,
+                                post_type: Post.types[:whisper],
+                                raw: 'this is a whispered reply').create
+
+      expect(whisper).to be_present
+      expect(whisper.post_type).to eq(Post.types[:whisper])
+
+      whisper_reply = PostCreator.new(user,
+                                      topic_id: topic.id,
+                                      reply_to_post_number: whisper.post_number,
+                                      post_type: Post.types[:regular],
+                                      raw: 'replying to a whisper this time').create
+
+      expect(whisper_reply).to be_present
+      expect(whisper_reply.post_type).to eq(Post.types[:whisper])
     end
   end
 
@@ -274,13 +379,13 @@ describe PostCreator do
       end
 
       it "fails for dupe post accross topic" do
-        first = create_post
-        second = create_post
+        first = create_post(raw: "this is a test #{SecureRandom.hex}")
+        second = create_post(raw: "this is a test #{SecureRandom.hex}")
 
         dupe = "hello 123 test #{SecureRandom.hex}"
 
-        response_1 = create_post(raw: dupe, user: first.user, topic_id: first.topic_id)
-        response_2 = create_post(raw: dupe, user: first.user, topic_id: second.topic_id)
+        response_1 = PostCreator.create(first.user, raw: dupe, topic_id: first.topic_id)
+        response_2 = PostCreator.create(first.user, raw: dupe, topic_id: second.topic_id)
 
         expect(response_1.errors.count).to eq(0)
         expect(response_2.errors.count).to eq(1)
@@ -322,7 +427,7 @@ describe PostCreator do
 
     it "does not create the post" do
       GroupMessage.stubs(:create)
-      post = creator.create
+      _post = creator.create
 
       expect(creator.errors).to be_present
       expect(creator.spam?).to eq(true)
@@ -339,7 +444,7 @@ describe PostCreator do
 
   # more integration testing ... maximise our testing
   context 'existing topic' do
-    let!(:topic) { Fabricate(:topic, user: user) }
+    let(:topic) { Fabricate(:topic, user: user) }
     let(:creator) { PostCreator.new(user, raw: 'test reply', topic_id: topic.id, reply_to_post_number: 4) }
 
     it 'ensures the user can create the post' do
@@ -428,6 +533,13 @@ describe PostCreator do
       expect(unrelated.notifications.count).to eq(0)
       expect(post.topic.subtype).to eq(TopicSubtype.user_to_user)
 
+      # PMs do not increase post count or topic count
+      expect(post.user.user_stat.post_count).to eq(0)
+      expect(post.user.user_stat.topic_count).to eq(0)
+
+      # archive this message and ensure archive is cleared for all users on reply
+      UserArchivedMessage.create(user_id: target_user2.id, topic_id: post.topic_id)
+
       # if an admin replies they should be added to the allowed user list
       admin = Fabricate(:admin)
       PostCreator.create(admin, raw: 'hi there welcome topic, I am a mod',
@@ -435,6 +547,18 @@ describe PostCreator do
 
       post.topic.reload
       expect(post.topic.topic_allowed_users.where(user_id: admin.id).count).to eq(1)
+
+      expect(UserArchivedMessage.where(user_id: target_user2.id, topic_id: post.topic_id).count).to eq(0)
+
+      # if another admin replies and is already member of the group, don't add them to topic_allowed_users
+      group = Fabricate(:group)
+      post.topic.topic_allowed_groups.create!(group: group)
+      admin2 = Fabricate(:admin)
+      group.add(admin2)
+
+      PostCreator.create(admin2, raw: 'I am also an admin, and a mod', topic_id: post.topic_id)
+
+      expect(post.topic.topic_allowed_users.where(user_id: admin2.id).count).to eq(0)
     end
   end
 
@@ -476,6 +600,32 @@ describe PostCreator do
     end
   end
 
+  context 'auto closing' do
+    it 'closes private messages that have more than N posts' do
+      SiteSetting.auto_close_messages_post_count = 2
+
+      admin = Fabricate(:admin)
+
+      post1 = create_post(archetype: Archetype.private_message,
+                          target_usernames: [admin.username])
+
+      _post2 = create_post(user: post1.user, topic_id: post1.topic_id)
+
+      post1.topic.reload
+      expect(post1.topic.closed).to eq(true)
+    end
+
+    it 'closes topics that have more than N posts' do
+      SiteSetting.auto_close_topics_post_count = 2
+
+      post1 = create_post
+      _post2 = create_post(user: post1.user, topic_id: post1.topic_id)
+
+      post1.topic.reload
+      expect(post1.topic.closed).to eq(true)
+    end
+  end
+
   context 'private message to group' do
     let(:target_user1) { Fabricate(:coding_horror) }
     let(:target_user2) { Fabricate(:moderator) }
@@ -494,7 +644,7 @@ describe PostCreator do
                                target_group_names: group.name)
     end
 
-    it 'acts correctly' do
+    it 'can post to a group correctly' do
       expect(post.topic.archetype).to eq(Archetype.private_message)
       expect(post.topic.topic_allowed_users.count).to eq(1)
       expect(post.topic.topic_allowed_groups.count).to eq(1)
@@ -540,12 +690,12 @@ describe PostCreator do
 
   describe "word_count" do
     it "has a word count" do
-      creator = PostCreator.new(user, title: 'some inspired poetry for a rainy day', raw: 'mary had a little lamb, little lamb, little lamb. mary had a little lamb')
+      creator = PostCreator.new(user, title: 'some inspired poetry for a rainy day', raw: 'mary had a little lamb, little lamb, little lamb. mary had a little lamb. Здравствуйте')
       post = creator.create
-      expect(post.word_count).to eq(14)
+      expect(post.word_count).to eq(15)
 
       post.topic.reload
-      expect(post.topic.word_count).to eq(14)
+      expect(post.topic.word_count).to eq(15)
     end
   end
 
@@ -559,7 +709,17 @@ describe PostCreator do
                                 title: 'Reviews of Science Ovens',
                                 raw: 'Did you know that you can use microwaves to cook your dinner? Science!')
       creator.create
+      expect(creator.errors).to be_blank
       expect(TopicEmbed.where(embed_url: embed_url).exists?).to eq(true)
+
+      # If we try to create another topic with the embed url, should fail
+      creator = PostCreator.new(user,
+                                embed_url: embed_url,
+                                title: 'More Reviews of Science Ovens',
+                                raw: 'As if anyone ever wanted to learn more about them!')
+      result = creator.create
+      expect(result).to be_present
+      expect(creator.errors).to be_present
     end
   end
 
@@ -592,8 +752,6 @@ describe PostCreator do
   end
 
   context "events" do
-    let(:topic) { Fabricate(:topic, user: user) }
-
     before do
       @posts_created = 0
       @topics_created = 0
@@ -611,16 +769,49 @@ describe PostCreator do
 
     it "fires boths event when creating a topic" do
       pc = PostCreator.new(user, raw: 'this is the new content for my topic', title: 'this is my new topic title')
-      post = pc.create
+      _post = pc.create
       expect(@posts_created).to eq(1)
       expect(@topics_created).to eq(1)
     end
 
     it "fires only the post event when creating a post" do
       pc = PostCreator.new(user, topic_id: topic.id, raw: 'this is the new content for my post')
-      post = pc.create
+      _post = pc.create
       expect(@posts_created).to eq(1)
       expect(@topics_created).to eq(0)
+    end
+  end
+
+  context "staged users" do
+    let(:staged) { Fabricate(:staged) }
+
+    it "automatically watches all messages it participates in" do
+      post = PostCreator.create(staged,
+        title: "this is the title of a topic created by a staged user",
+        raw: "this is the content of a topic created by a staged user ;)"
+      )
+      topic_user = TopicUser.find_by(user_id: staged.id, topic_id: post.topic_id)
+      expect(topic_user.notification_level).to eq(TopicUser.notification_levels[:watching])
+      expect(topic_user.notifications_reason_id).to eq(TopicUser.notification_reasons[:auto_watch])
+    end
+  end
+
+  describe '#create!' do
+    it "should return the post if it was successfully created" do
+      title = "This is a valid title"
+      raw = "This is a really awesome post"
+
+      post_creator = PostCreator.new(user, title: title, raw: raw)
+      post = post_creator.create
+
+      expect(post).to eq(Post.last)
+      expect(post.topic.title).to eq(title)
+      expect(post.raw).to eq(raw)
+    end
+
+    it "should raise an error when post fails to be created" do
+      post_creator = PostCreator.new(user, title: '', raw: '')
+      expect { post_creator.create! }.to raise_error(ActiveRecord::RecordNotSaved)
     end
   end
 

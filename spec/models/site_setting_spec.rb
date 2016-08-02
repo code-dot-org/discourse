@@ -1,25 +1,8 @@
-require 'spec_helper'
+require 'rails_helper'
 require_dependency 'site_setting'
 require_dependency 'site_setting_extension'
 
 describe SiteSetting do
-
-  describe "normalized_embeddable_host" do
-    it 'returns the `embeddable_host` value' do
-      SiteSetting.stubs(:embeddable_host).returns("eviltrout.com")
-      expect(SiteSetting.normalized_embeddable_host).to eq("eviltrout.com")
-    end
-
-    it 'strip http from `embeddable_host` value' do
-      SiteSetting.stubs(:embeddable_host).returns("http://eviltrout.com")
-      expect(SiteSetting.normalized_embeddable_host).to eq("eviltrout.com")
-    end
-
-    it 'strip https from `embeddable_host` value' do
-      SiteSetting.stubs(:embeddable_host).returns("https://eviltrout.com")
-      expect(SiteSetting.normalized_embeddable_host).to eq("eviltrout.com")
-    end
-  end
 
   describe 'topic_title_length' do
     it 'returns a range of min/max topic title length' do
@@ -87,17 +70,41 @@ describe SiteSetting do
   end
 
   describe "scheme" do
+    before do
+      SiteSetting.force_https = true
+    end
+
 
     it "returns http when ssl is disabled" do
-      SiteSetting.use_https = false
+      SiteSetting.force_https = false
       expect(SiteSetting.scheme).to eq("http")
     end
 
     it "returns https when using ssl" do
-      SiteSetting.expects(:use_https).returns(true)
       expect(SiteSetting.scheme).to eq("https")
     end
 
   end
 
+  context 'deprecated site settings' do
+    before do
+      SiteSetting.force_https = true
+    end
+
+    after do
+      SiteSetting.force_https = false
+    end
+
+    describe '#use_https' do
+      it 'should act as a proxy to the new methods' do
+        expect(SiteSetting.use_https).to eq(true)
+        expect(SiteSetting.use_https?).to eq(true)
+
+        SiteSetting.use_https = false
+
+        expect(SiteSetting.force_https).to eq(false)
+        expect(SiteSetting.force_https?).to eq(false)
+      end
+    end
+  end
 end

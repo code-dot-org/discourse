@@ -1,6 +1,6 @@
 # encoding: utf-8
 
-require 'spec_helper'
+require 'rails_helper'
 require_dependency 'post_creator'
 
 describe Category do
@@ -33,6 +33,15 @@ describe Category do
 
       expect(read_restricted).to be false
       expect(resolved).to be_blank
+    end
+  end
+
+  describe "permissions_params" do
+    it "returns the right group names and permission type" do
+      category = Fabricate(:category)
+      group = Fabricate(:group)
+      category_group = Fabricate(:category_group, category: category, group: group)
+      expect(category.permissions_params).to eq({ "#{group.name}" => category_group.permission_type })
     end
   end
 
@@ -307,6 +316,30 @@ describe Category do
       expect { @category.update_attributes(name: 'Troutfishing', topic_id: nil) }.to_not raise_error
     end
 
+    it "creates permalink when category slug is changed" do
+      @category.update_attributes(slug: 'new-category')
+      expect(Permalink.count).to eq(1)
+    end
+
+    it "creates permalink when sub category slug is changed" do
+      sub_category = Fabricate(:category, slug: 'sub-category', parent_category_id: @category.id)
+      sub_category.update_attributes(slug: 'new-sub-category')
+      expect(Permalink.count).to eq(1)
+    end
+
+    it "deletes permalink when category slug is reused" do
+      Fabricate(:permalink, url: "/c/bikeshed-category")
+      Fabricate(:category, slug: 'bikeshed-category')
+      expect(Permalink.count).to eq(0)
+    end
+
+    it "deletes permalink when sub category slug is reused" do
+      Fabricate(:permalink, url: "/c/main-category/sub-category")
+      main_category = Fabricate(:category, slug: 'main-category')
+      Fabricate(:category, slug: 'sub-category', parent_category_id: main_category.id)
+      expect(Permalink.count).to eq(0)
+    end
+
     it "should not set its description topic to auto-close" do
       category = Fabricate(:category, name: 'Closing Topics', auto_close_hours: 1)
       expect(category.topic.auto_close_at).to be_nil
@@ -442,7 +475,7 @@ describe Category do
       before do
         post = create_post(user: @category.user, category: @category.name)
 
-        SiteSetting.stubs(:ninja_edit_window).returns(1.minute.to_i)
+        SiteSetting.stubs(:editing_grace_period).returns(1.minute.to_i)
         post.revise(post.user, { raw: 'updated body' }, revised_at: post.updated_at + 2.minutes)
 
         Category.update_stats
@@ -490,6 +523,22 @@ describe Category do
         subcategory = Fabricate(:category, name: "child",
                                 parent_category_id: parent_category.id)
         expect(subcategory.url).to eq "/c/parent/child"
+      end
+    end
+  end
+
+  describe "#url_with_id" do
+    let(:category) { Fabricate(:category, name: 'cats') }
+
+    it "includes the id in the URL" do
+      expect(category.url_with_id).to eq("/c/#{category.id}-cats")
+    end
+
+    context "child category" do
+      let(:child_category) { Fabricate(:category, parent_category_id: category.id, name: 'dogs') }
+
+      it "includes the id in the URL" do
+        expect(child_category.url_with_id).to eq("/c/cats/dogs/#{child_category.id}")
       end
     end
   end
@@ -555,6 +604,16 @@ describe Category do
       expect(Category.find_by_email('upper@example.com')).to eq(c2)
       expect(Category.find_by_email('mixed.case@example.com')).to eq(c3)
       expect(Category.find_by_email('MIXED.CASE@EXAMPLE.COM')).to eq(c3)
+    end
+  end
+
+  describe "find_by_slug" do
+    it "finds with category and sub category" do
+      category = Fabricate(:category, slug: 'awesome-category')
+      sub_category = Fabricate(:category, parent_category_id: category.id, slug: 'awesome-sub-category')
+
+      expect(Category.find_by_slug('awesome-category')).to eq(category)
+      expect(Category.find_by_slug('awesome-sub-category', 'awesome-category')).to eq(sub_category)
     end
   end
 

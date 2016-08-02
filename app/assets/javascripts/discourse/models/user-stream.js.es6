@@ -1,4 +1,8 @@
+import { ajax } from 'discourse/lib/ajax';
+import { url } from 'discourse/lib/computed';
 import RestModel from 'discourse/models/rest';
+import UserAction from 'discourse/models/user-action';
+import { emojiUnescape } from 'discourse/lib/text';
 
 export default RestModel.extend({
   loaded: false,
@@ -10,19 +14,19 @@ export default RestModel.extend({
   filterParam: function() {
     const filter = this.get('filter');
     if (filter === Discourse.UserAction.TYPES.replies) {
-      return [Discourse.UserAction.TYPES.replies,
-              Discourse.UserAction.TYPES.quotes].join(",");
+      return [UserAction.TYPES.replies,
+              UserAction.TYPES.quotes].join(",");
     }
 
     if(!filter) {
-      return [Discourse.UserAction.TYPES.topics,
-              Discourse.UserAction.TYPES.posts].join(",");
+      return [UserAction.TYPES.topics,
+              UserAction.TYPES.posts].join(",");
     }
 
     return filter;
   }.property('filter'),
 
-  baseUrl: Discourse.computed.url('itemsLoaded', 'user.username_lower', '/user_actions.json?offset=%@&username=%@'),
+  baseUrl: url('itemsLoaded', 'user.username_lower', '/user_actions.json?offset=%@&username=%@'),
 
   filterBy(filter) {
     this.setProperties({ filter, itemsLoaded: 0, content: [], lastLoadedUrl: null });
@@ -53,25 +57,26 @@ export default RestModel.extend({
   findItems() {
     const self = this;
 
-    let url = this.get('baseUrl');
+    let findUrl = this.get('baseUrl');
     if (this.get('filterParam')) {
-      url += "&filter=" + this.get('filterParam');
+      findUrl += "&filter=" + this.get('filterParam');
     }
 
     // Don't load the same stream twice. We're probably at the end.
     const lastLoadedUrl = this.get('lastLoadedUrl');
-    if (lastLoadedUrl === url) { return Ember.RSVP.resolve(); }
+    if (lastLoadedUrl === findUrl) { return Ember.RSVP.resolve(); }
 
     if (this.get('loading')) { return Ember.RSVP.resolve(); }
     this.set('loading', true);
-    return Discourse.ajax(url, {cache: 'false'}).then( function(result) {
+    return ajax(findUrl, {cache: 'false'}).then( function(result) {
       if (result && result.user_actions) {
         const copy = Em.A();
         result.user_actions.forEach(function(action) {
-          copy.pushObject(Discourse.UserAction.create(action));
+          action.title = emojiUnescape(Handlebars.Utils.escapeExpression(action.title));
+          copy.pushObject(UserAction.create(action));
         });
 
-        self.get('content').pushObjects(Discourse.UserAction.collapseStream(copy));
+        self.get('content').pushObjects(UserAction.collapseStream(copy));
         self.setProperties({
           loaded: true,
           itemsLoaded: self.get('itemsLoaded') + result.user_actions.length
@@ -79,7 +84,7 @@ export default RestModel.extend({
       }
     }).finally(function() {
       self.set('loading', false);
-      self.set('lastLoadedUrl', url);
+      self.set('lastLoadedUrl', findUrl);
     });
   }
 

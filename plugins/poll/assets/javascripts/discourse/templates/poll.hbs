@@ -2,13 +2,13 @@
   <div class="poll-container">
     {{#if showingResults}}
       {{#if isNumber}}
-        {{poll-results-number poll=poll}}
+        {{poll-results-number isPublic=isPublic poll=poll}}
       {{else}}
-        {{poll-results-standard poll=poll}}
+        {{poll-results-standard isPublic=isPublic poll=poll}}
       {{/if}}
     {{else}}
       <ul>
-        {{#each option in poll.options}}
+        {{#each poll.options as |option|}}
           {{poll-option option=option toggle="toggleOption"}}
         {{/each}}
       </ul>
@@ -29,12 +29,20 @@
         <p>{{{multipleHelpText}}}</p>
       {{/if}}
     {{/if}}
+
+    {{#if isPublic}}
+      {{#unless showingResults}}
+        <p>{{i18n "poll.public.title"}}</p>
+      {{/unless}}
+    {{/if}}
   </div>
 </div>
 
 <div class="poll-buttons">
   {{#if isMultiple}}
-    {{d-button class="cast-votes" title="poll.cast-votes.title" label="poll.cast-votes.label" disabled=castVotesDisabled action="castVotes"}}
+    {{#unless hideResultsDisabled}}
+      {{d-button class=castVotesButtonClass title="poll.cast-votes.title" label="poll.cast-votes.label" disabled=castVotesDisabled action="castVotes"}}
+    {{/unless}}
   {{/if}}
 
   {{#if showingResults}}

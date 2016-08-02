@@ -1,4 +1,4 @@
-require 'spec_helper'
+require 'rails_helper'
 require_dependency 'user_destroyer'
 
 describe UserDestroyer do
@@ -83,6 +83,17 @@ describe UserDestroyer do
         expect(QueuedPost.where(user_id: user.id).count).to eq(0)
       end
 
+    end
+
+    context "with a draft" do
+      let(:user) { Fabricate(:user) }
+      let(:admin) { Fabricate(:admin) }
+      let!(:draft) { Draft.set(user, 'test', 1, 'test') }
+
+      it "removed the draft" do
+        UserDestroyer.new(admin).destroy(user)
+        expect(Draft.where(user_id: user.id).count).to eq(0)
+      end
     end
 
     context 'user has posts' do

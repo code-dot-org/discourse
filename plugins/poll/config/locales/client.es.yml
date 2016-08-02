@@ -9,19 +9,25 @@ es:
   js:
     poll:
       voters:
-        zero: "votantes"
         one: "votante"
         other: "votantes"
       total_votes:
-        zero: "total votos"
-        one: "total voto"
-        other: "total votos"
+        one: "voto total"
+        other: "votos totales"
       average_rating: "Puntuación media: <strong>%{average}</strong>."
+      public:
+        title: "Los votos en esta encuesta serán públicos."
       multiple:
         help:
-          at_least_min_options: "Debes elegir al menos <strong>%{count}</strong> opciones."
-          up_to_max_options: "Puedes escoger hasta <strong>%{count}</strong> opciones."
-          x_options: "Debes elegir <strong>%{count}</strong> opciones."
+          at_least_min_options:
+            one: "Debes elegir al menos <strong>1</strong> opción."
+            other: "Debes elegir al menos <strong>%{count}</strong> opciones."
+          up_to_max_options:
+            one: "Puedes elegir hasta <strong>1</strong> opción."
+            other: "Puedes elegir hasta <strong>%{count}</strong> opciones."
+          x_options:
+            one: "Debes elegir <strong>1</strong> opción."
+            other: "Debes elegir <strong>%{count}</strong> opciones."
           between_min_and_max_options: "Puedes escoger entre <strong>%{min}</strong> y <strong>%{max}</strong> opciones."
       cast-votes:
         title: "Votar"
@@ -42,3 +48,4 @@ es:
         confirm: "¿Seguro que quieres cerrar esta encuesta?"
       error_while_toggling_status: "Ha ocurrido un error mientras se cambiaba el estado de esta encuesta."
       error_while_casting_votes: "Ha ocurrido un error a la hora de enviar los votos."
+      error_while_fetching_voters: "Hubo un error al mostrar los votantes."

@@ -1,4 +1,4 @@
-require "spec_helper"
+require "rails_helper"
 
 describe Admin::BackupsController do
 
@@ -66,9 +66,9 @@ describe Admin::BackupsController do
     describe ".create" do
 
       it "starts a backup" do
-        BackupRestore.expects(:backup!).with(@admin.id, { publish_to_message_bus: true, with_uploads: false })
+        BackupRestore.expects(:backup!).with(@admin.id, publish_to_message_bus: true, with_uploads: false, client_id: "foo")
 
-        xhr :post, :create, { with_uploads: false }
+        xhr :post, :create, with_uploads: false, client_id: "foo"
 
         expect(response).to be_success
       end
@@ -151,10 +151,12 @@ describe Admin::BackupsController do
     describe ".restore" do
 
       it "starts a restore" do
-        BackupRestore.expects(:restore!).with(@admin.id, backup_filename, true)
+        expect(SiteSetting.disable_emails).to eq(false)
+        BackupRestore.expects(:restore!).with(@admin.id, filename: backup_filename, publish_to_message_bus: true, client_id: "foo")
 
-        xhr :post, :restore, id: backup_filename
+        xhr :post, :restore, id: backup_filename, client_id: "foo"
 
+        expect(SiteSetting.disable_emails).to eq(true)
         expect(response).to be_success
       end
 

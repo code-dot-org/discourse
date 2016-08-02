@@ -1,4 +1,13 @@
-export default Discourse.View.extend({
+// we don't want to deselect when we click on buttons that use it
+function ignoreElements(e) {
+  const $target = $(e.target);
+  return $target.hasClass('quote-button') ||
+         $target.closest('.create').length ||
+         $target.closest('.reply-new').length ||
+         $target.closest('.share').length;
+}
+
+export default Ember.View.extend({
   classNames: ['quote-button'],
   classNameBindings: ['visible'],
   isMouseDown: false,
@@ -34,7 +43,10 @@ export default Discourse.View.extend({
     // best we can do is debounce this so we dont keep locking up
     // the selection when we add the caret to measure where we place
     // the quote reply widget
-    if (navigator.userAgent.match(/Windows Phone/)) {
+    //
+    // Same hack applied to Android cause it has unreliable touchend
+    const isAndroid = this.capabilities.isAndroid;
+    if (this.capabilities.isWinphone || isAndroid) {
       onSelectionChanged = _.debounce(onSelectionChanged, 500);
     }
 
@@ -42,25 +54,19 @@ export default Discourse.View.extend({
       .on("mousedown.quote-button", function(e) {
         view.set('isMouseDown', true);
 
-        const $target = $(e.target);
-        // we don't want to deselect when we click on buttons that use it
-        if ($target.hasClass('quote-button') ||
-            $target.closest('.create').length ||
-            $target.closest('.reply-new').length) return;
+        if (ignoreElements(e)) { return; }
 
         // deselects only when the user left click
         // (allows anyone to `extend` their selection using shift+click)
-        if (e.which === 1 && !e.shiftKey) controller.deselectText();
+        if (!window.getSelection().isCollapsed &&
+            e.which === 1 &&
+            !e.shiftKey) controller.deselectText();
       })
       .on('mouseup.quote-button', function(e) {
+        if (ignoreElements(e)) { return; }
+
         view.selectText(e.target, controller);
         view.set('isMouseDown', false);
-      })
-      .on('touchstart.quote-button', function(){
-        view.set('isTouchInProgress', true);
-      })
-      .on('touchend.quote-button', function(){
-        view.set('isTouchInProgress', false);
       })
       .on('selectionchange', function() {
         // there is no need to handle this event when the mouse is down
@@ -69,6 +75,18 @@ export default Discourse.View.extend({
         // `selection.anchorNode` is used as a target
         onSelectionChanged();
       });
+
+      // Android is dodgy, touchend often will not fire
+      // https://code.google.com/p/android/issues/detail?id=19827
+      if (!isAndroid) {
+        $(document)
+          .on('touchstart.quote-button', function(){
+            view.set('isTouchInProgress', true);
+          })
+          .on('touchend.quote-button', function(){
+            view.set('isTouchInProgress', false);
+          });
+      }
   },
 
   selectText(target, controller) {
@@ -76,7 +94,7 @@ export default Discourse.View.extend({
     // breaks if quoting has been disabled by the user
     if (!Discourse.User.currentProp('enable_quoting')) return;
     // retrieve the post id from the DOM
-    const postId = $target.closest('.boxed').data('post-id');
+    const postId = $target.closest('.boxed, .reply').data('post-id');
     // select the text
     if (postId) controller.selectText(postId);
   },

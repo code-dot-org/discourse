@@ -5,7 +5,7 @@
 class PostDestroyer
 
   def self.destroy_old_hidden_posts
-    Post.where(deleted_at: nil)
+    Post.where(deleted_at: nil, hidden: true)
         .where("hidden_at < ?", 30.days.ago)
         .find_each do |post|
         PostDestroyer.new(Discourse.system_user, post).destroy
@@ -58,12 +58,20 @@ class PostDestroyer
     topic = Topic.with_deleted.find @post.topic_id
     topic.recover! if @post.is_first_post?
     topic.update_statistics
+    recover_user_actions
     DiscourseEvent.trigger(:post_recovered, @post, @opts, @user)
   end
 
   def staff_recovered
     @post.recover!
+
+    if author = @post.user
+      author.user_stat.post_count += 1
+      author.user_stat.save!
+    end
+
     @post.publish_change_to_clients! :recovered
+    TopicTrackingState.publish_recover(@post.topic) if @post.topic && @post.post_number == 1
   end
 
   # When a post is properly deleted. Well, it's still soft deleted, but it will no longer
@@ -90,18 +98,22 @@ class PostDestroyer
       end
       update_associated_category_latest_topic
       update_user_counts
-      TopicUser.update_post_action_cache(topic_id: @post.topic_id)
+      TopicUser.update_post_action_cache(post_id: @post.id)
     end
 
     feature_users_in_the_topic if @post.topic
     @post.publish_change_to_clients! :deleted if @post.topic
+    TopicTrackingState.publish_delete(@post.topic) if @post.topic && @post.post_number == 1
   end
 
   # When a user 'deletes' their own post. We just change the text.
   def mark_for_deletion
     I18n.with_locale(SiteSetting.default_locale) do
+
+      # don't call revise from within transaction, high risk of deadlock
+      @post.revise(@user, { raw: I18n.t('js.post.deleted_by_author', count: SiteSetting.delete_removed_posts_after) }, force_new_version: true)
+
       Post.transaction do
-        @post.revise(@user, { raw: I18n.t('js.post.deleted_by_author', count: SiteSetting.delete_removed_posts_after) }, force_new_version: true)
         @post.update_column(:user_deleted, true)
         @post.update_flagged_posts_count
         @post.topic_links.each(&:destroy)
@@ -113,9 +125,11 @@ class PostDestroyer
     Post.transaction do
       @post.update_column(:user_deleted, false)
       @post.skip_unique_check = true
-      @post.revise(@user, { raw: @post.revisions.last.modifications["raw"][0] }, force_new_version: true)
       @post.update_flagged_posts_count
     end
+
+    # has internal transactions, if we nest then there are some very high risk deadlocks
+    @post.revise(@user, { raw: @post.revisions.last.modifications["raw"][0] }, force_new_version: true)
   end
 
   private
@@ -164,6 +178,11 @@ class PostDestroyer
       }
       UserAction.remove_action!(row)
     end
+  end
+
+  def recover_user_actions
+    # TODO: Use a trash concept for `user_actions` to avoid churn and simplify this?
+    UserActionObserver.log_post(@post)
   end
 
   def remove_associated_replies

@@ -40,13 +40,17 @@ class StaffActionLogger
   def log_post_deletion(deleted_post, opts={})
     raise Discourse::InvalidParameters.new(:deleted_post) unless deleted_post && deleted_post.is_a?(Post)
 
-    topic = deleted_post.topic || Topic.with_deleted.find(deleted_post.topic_id)
+    topic = deleted_post.topic || Topic.with_deleted.find_by(id: deleted_post.topic_id)
+
+    username = deleted_post.user.try(:username) || "unknown"
+    name = deleted_post.user.try(:name) || "unknown"
+    topic_title = topic.try(:title) || "not found"
 
     details = [
       "id: #{deleted_post.id}",
       "created_at: #{deleted_post.created_at}",
-      "user: #{deleted_post.user.username} (#{deleted_post.user.name})",
-      "topic: #{topic.title}",
+      "user: #{username} (#{name})",
+      "topic: #{topic_title}",
       "post_number: #{deleted_post.post_number}",
       "raw: #{deleted_post.raw}"
     ]
@@ -61,10 +65,12 @@ class StaffActionLogger
   def log_topic_deletion(deleted_topic, opts={})
     raise Discourse::InvalidParameters.new(:deleted_topic) unless deleted_topic && deleted_topic.is_a?(Topic)
 
+    user = deleted_topic.user ? "#{deleted_topic.user.username} (#{deleted_topic.user.name})" : "(deleted user)"
+
     details = [
       "id: #{deleted_topic.id}",
       "created_at: #{deleted_topic.created_at}",
-      "user: #{deleted_topic.user.username} (#{deleted_topic.user.name})",
+      "user: #{user}",
       "title: #{deleted_topic.title}"
     ]
 
@@ -128,6 +134,16 @@ class StaffActionLogger
       action: UserHistory.actions[:delete_site_customization],
       subject: site_customization.name,
       previous_value: site_customization.attributes.slice(*SITE_CUSTOMIZATION_LOGGED_ATTRS).to_json
+    }))
+  end
+
+  def log_site_text_change(subject, new_text=nil, old_text=nil, opts={})
+    raise Discourse::InvalidParameters.new(:subject) unless subject.present?
+    UserHistory.create( params(opts).merge({
+      action: UserHistory.actions[:change_site_text],
+      subject: subject,
+      previous_value: old_text,
+      new_value: new_text
     }))
   end
 
@@ -207,11 +223,145 @@ class StaffActionLogger
     }))
   end
 
+  def log_category_settings_change(category, category_params, old_permissions=nil)
+    validate_category(category)
+
+    changed_attributes = category.previous_changes.slice(*category_params.keys)
+
+    if !old_permissions.empty? && (old_permissions != category_params[:permissions])
+      changed_attributes.merge!({ permissions: [old_permissions.to_json, category_params[:permissions].to_json] })
+    end
+
+    changed_attributes.each do |key, value|
+      UserHistory.create(params.merge({
+        action: UserHistory.actions[:change_category_settings],
+        category_id: category.id,
+        context: category.url,
+        subject: key,
+        previous_value: value[0],
+        new_value: value[1]
+      }))
+    end
+  end
+
+  def log_category_deletion(category)
+    validate_category(category)
+
+    details = [
+      "created_at: #{category.created_at}",
+      "name: #{category.name}",
+      "permissions: #{category.permissions_params}"
+    ]
+
+    if parent_category = category.parent_category
+      details << "parent_category: #{parent_category.name}"
+    end
+
+    UserHistory.create(params.merge({
+      action: UserHistory.actions[:delete_category],
+      category_id: category.id,
+      details: details.join("\n"),
+      context: category.url
+    }))
+  end
+
+  def log_category_creation(category)
+    validate_category(category)
+
+    details = [
+      "created_at: #{category.created_at}",
+      "name: #{category.name}"
+    ]
+
+    UserHistory.create(params.merge({
+      action: UserHistory.actions[:create_category],
+      details: details.join("\n"),
+      category_id: category.id,
+      context: category.url
+    }))
+  end
+
+  def log_block_user(user, opts={})
+    raise Discourse::InvalidParameters.new(:user) unless user
+    UserHistory.create( params(opts).merge({
+      action: UserHistory.actions[:block_user],
+      target_user_id: user.id
+    }))
+  end
+
+  def log_unblock_user(user, opts={})
+    raise Discourse::InvalidParameters.new(:user) unless user
+    UserHistory.create( params(opts).merge({
+      action: UserHistory.actions[:unblock_user],
+      target_user_id: user.id
+    }))
+  end
+
+  def log_grant_admin(user, opts={})
+    raise Discourse::InvalidParameters.new(:user) unless user
+    UserHistory.create( params(opts).merge({
+      action: UserHistory.actions[:grant_admin],
+      target_user_id: user.id
+    }))
+  end
+
+  def log_revoke_admin(user, opts={})
+    raise Discourse::InvalidParameters.new(:user) unless user
+    UserHistory.create( params(opts).merge({
+      action: UserHistory.actions[:revoke_admin],
+      target_user_id: user.id
+    }))
+  end
+
+  def log_grant_moderation(user, opts={})
+    raise Discourse::InvalidParameters.new(:user) unless user
+    UserHistory.create( params(opts).merge({
+      action: UserHistory.actions[:grant_moderation],
+      target_user_id: user.id
+    }))
+  end
+
+  def log_revoke_moderation(user, opts={})
+    raise Discourse::InvalidParameters.new(:user) unless user
+    UserHistory.create( params(opts).merge({
+      action: UserHistory.actions[:revoke_moderation],
+      target_user_id: user.id
+    }))
+  end
+
+  def log_backup_operation(opts={})
+    UserHistory.create(params(opts).merge({
+      action: UserHistory.actions[:backup_operation],
+      ip_address: @admin.ip_address.to_s
+    }))
+  end
+
+  def log_revoke_email(user, reason, opts={})
+    UserHistory.create(params(opts).merge({
+      action: UserHistory.actions[:revoke_email],
+      target_user_id: user.id,
+      details: reason
+    }))
+  end
+
+  def log_user_deactivate(user, reason, opts={})
+    raise Discourse::InvalidParameters.new(:user) unless user
+    UserHistory.create(params(opts).merge({
+      action: UserHistory.actions[:deactivate_user],
+      target_user_id: user.id,
+      details: reason
+    }))
+  end
+
   private
 
     def params(opts=nil)
       opts ||= {}
       { acting_user_id: @admin.id, context: opts[:context] }
+    end
+
+    def validate_category(category)
+      raise Discourse::InvalidParameters.new(:category) unless category && category.is_a?(Category)
     end
 
 end

@@ -9,12 +9,12 @@ cs:
   js:
     poll:
       voters:
-        zero: "hlasů"
         one: "hlasující"
-        other: "hlasů"
+        few: "hlasujících"
+        other: "hlasující"
       total_votes:
-        zero: "hlasů"
-        one: "hlas"
+        one: "hlas celkem"
+        few: "hlasy celkem"
         other: "hlasů celkem"
       average_rating: "Průměrné hodnocení: <strong>%{average}</strong>."
       cast-votes:

@@ -9,17 +9,25 @@ fi:
   js:
     poll:
       voters:
-        zero: "äänestäjät"
         one: "äänestäjä"
-        other: "äänestäjät"
+        other: "äänestäjää"
       total_votes:
-        zero: "ääntä"
         one: "ääni"
         other: "ääntä"
-      average_rating: "Keskivertoarvio: <strong>%{average}</strong>."
+      average_rating: "Keskiarvo: <strong>%{average}</strong>"
+      public:
+        title: "Tämän kyselyn äänet ovat julkisia."
       multiple:
         help:
-          up_to_max_options: "Voit valita enintään <strong>%{count}</strong>  vaihtoehtoa."
+          at_least_min_options:
+            one: "Sinun täytyy valita vähintään <strong>yksi</strong> vaihtoehto."
+            other: "Sinun täytyy valita vähintään <strong>%{count}</strong> vaihtoehtoa."
+          up_to_max_options:
+            one: "Voit valita enintään <strong>yhden</strong> vaihtoehdon."
+            other: "Voit valita enintään <strong>%{count}</strong> vaihtoehtoa."
+          x_options:
+            one: "Sinun täytyy valita <strong>yksi</strong> vaihtoehto."
+            other: "Sinun täytyy valita <strong>%{count}</strong> vaihtoehtoa."
           between_min_and_max_options: "Voit valita <strong>%{min}</strong>-<strong>%{max}</strong vaihtoehtoa."
       cast-votes:
         title: "Antakaa äänenne"
@@ -40,3 +48,4 @@ fi:
         confirm: "Suljetaanko äänestys?"
       error_while_toggling_status: "Äänestyksen tilaa muutettaessa tapahtui virhe."
       error_while_casting_votes: "Äänesi annettaessa tapahtui virhe."
+      error_while_fetching_voters: "Äänestäneiden näyttämisessä tapahtui virhe."

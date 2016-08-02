@@ -3,6 +3,21 @@ require 'fileutils'
 require_dependency 'plugin/metadata'
 require_dependency 'plugin/auth_provider'
 
+class Plugin::CustomEmoji
+  def self.cache_key
+    @@cache_key ||= "plugin-emoji"
+  end
+
+  def self.emojis
+    @@emojis ||= {}
+  end
+
+  def self.register(name, url)
+    @@cache_key = Digest::SHA1.hexdigest(cache_key + name)[0..10]
+    emojis[name] = url
+  end
+end
+
 class Plugin::Instance
 
   attr_accessor :path, :metadata
@@ -17,10 +32,18 @@ class Plugin::Instance
     }
   end
 
+  def seed_data
+    @seed_data ||= HashWithIndifferentAccess.new({})
+  end
+
   def self.find_all(parent_path)
     [].tap { |plugins|
       # also follows symlinks - http://stackoverflow.com/q/357754
       Dir["#{parent_path}/**/*/**/plugin.rb"].sort.each do |path|
+
+        # tagging is included in core, so don't load it
+        next if path =~ /discourse-tagging/
+
         source = File.read(path)
         metadata = Plugin::Metadata.parse(source)
         plugins << self.new(metadata, path)
@@ -31,6 +54,7 @@ class Plugin::Instance
   def initialize(metadata=nil, path=nil)
     @metadata = metadata
     @path = path
+    @idx = 0
   end
 
   def add_admin_route(label, location)
@@ -44,7 +68,7 @@ class Plugin::Instance
   delegate :name, to: :metadata
 
   def add_to_serializer(serializer, attr, define_include_method=true, &block)
-    klass = "#{serializer.to_s.classify}Serializer".constantize
+    klass = "#{serializer.to_s.classify}Serializer".constantize rescue "#{serializer.to_s}Serializer".constantize
 
     klass.attributes(attr) unless attr.to_s.start_with?("include_")
 
@@ -57,9 +81,14 @@ class Plugin::Instance
     klass.send(:define_method, "include_#{attr}?") { plugin.enabled? }
   end
 
+  def whitelist_staff_user_custom_field(field)
+    User.register_plugin_staff_custom_field(field, self)
+  end
+
   # Extend a class but check that the plugin is enabled
+  # for class methods use `add_class_method`
   def add_to_class(klass, attr, &block)
-    klass = klass.to_s.classify.constantize
+    klass = klass.to_s.classify.constantize rescue klass.to_s.constantize
 
     hidden_method_name = :"#{attr}_without_enable_check"
     klass.send(:define_method, hidden_method_name, &block)
@@ -68,6 +97,35 @@ class Plugin::Instance
     klass.send(:define_method, attr) do |*args|
       send(hidden_method_name, *args) if plugin.enabled?
     end
+  end
+
+  # Adds a class method to a class, respecting if plugin is enabled
+  def add_class_method(klass, attr, &block)
+    klass = klass.to_s.classify.constantize rescue klass.to_s.constantize
+
+    hidden_method_name = :"#{attr}_without_enable_check"
+    klass.send(:define_singleton_method, hidden_method_name, &block)
+
+    plugin = self
+    klass.send(:define_singleton_method, attr) do |*args|
+      send(hidden_method_name, *args) if plugin.enabled?
+    end
+  end
+
+  def add_model_callback(klass, callback, &block)
+    klass = klass.to_s.classify.constantize rescue klass.to_s.constantize
+    plugin = self
+
+    # generate a unique method name
+    method_name = "#{plugin.name}_#{klass.name}_#{callback}#{@idx}".underscore
+    @idx += 1
+    hidden_method_name = :"#{method_name}_without_enable_check"
+    klass.send(:define_method, hidden_method_name, &block)
+
+    klass.send(callback) do |*args|
+      send(hidden_method_name, *args) if plugin.enabled?
+    end
+
   end
 
   # Add validation method but check that the plugin is enabled
@@ -82,19 +140,17 @@ class Plugin::Instance
   # will make sure all the assets this plugin needs are registered
   def generate_automatic_assets!
     paths = []
+    assets = []
+
     automatic_assets.each do |path, contents|
-      unless File.exists? path
-        ensure_directory path
-        File.open(path,"w") do |f|
-          f.write(contents)
-        end
-      end
+      write_asset(path, contents)
       paths << path
+      assets << [path]
     end
 
     delete_extra_automatic_assets(paths)
 
-    paths
+    assets
   end
 
   def delete_extra_automatic_assets(good_paths)
@@ -137,7 +193,13 @@ class Plugin::Instance
     end
 
     initializers.each do |callback|
-      callback.call(self)
+      begin
+        callback.call(self)
+      rescue ActiveRecord::StatementInvalid => e
+        # When running db:migrate for the first time on a new database, plugin initializers might
+        # try to use models. Tolerate it.
+        raise e unless e.message.try(:include?, "PG::UndefinedTable")
+      end
     end
   end
 
@@ -166,20 +228,42 @@ class Plugin::Instance
 
   def register_color_scheme(name, colors)
     color_schemes << {name: name, colors: colors}
-   end
+  end
+
+  def register_seed_data(key, value)
+    seed_data[key] = value
+  end
+
+  def register_emoji(name, url)
+    Plugin::CustomEmoji.register(name, url)
+  end
 
   def automatic_assets
     css = styles.join("\n")
     js = javascripts.join("\n")
 
     auth_providers.each do |auth|
-      overrides = ""
-      overrides = ", titleOverride: '#{auth.title}'" if auth.title
-      overrides << ", messageOverride: '#{auth.message}'" if auth.message
-      overrides << ", frameWidth: '#{auth.frame_width}'" if auth.frame_width
-      overrides << ", frameHeight: '#{auth.frame_height}'" if auth.frame_height
 
-      js << "Discourse.LoginMethod.register(Discourse.LoginMethod.create({name: '#{auth.name}'#{overrides}}));\n"
+      auth_json = auth.to_json
+      hash = Digest::SHA1.hexdigest(auth_json)
+      js << <<JS
+define("discourse/initializers/login-method-#{hash}",
+  ["discourse/models/login-method", "exports"],
+  function(module, __exports__) {
+    "use strict";
+    __exports__["default"] = {
+      name: "login-method-#{hash}",
+      after: "inject-objects",
+      initialize: function(container) {
+        if (Ember.testing) { return; }
+
+        var authOpts = #{auth_json};
+        authOpts.siteSettings = container.lookup('site-settings:main');
+        module.register(authOpts);
+      }
+    };
+  });
+JS
 
       if auth.glyph
         css << ".btn-social.#{auth.name}:before{ content: '#{auth.glyph}'; }\n"
@@ -201,9 +285,7 @@ class Plugin::Instance
       hash = Digest::SHA1.hexdigest asset
       ["#{auto_generated_path}/plugin_#{hash}.#{extension}", asset]
     end
-
   end
-
 
   # note, we need to be able to parse seperately to activation.
   # this allows us to present information about a plugin in the UI
@@ -215,20 +297,30 @@ class Plugin::Instance
       root_path = "#{File.dirname(@path)}/assets/javascripts"
       DiscoursePluginRegistry.register_glob(root_path, 'js.es6')
       DiscoursePluginRegistry.register_glob(root_path, 'hbs')
+
+      admin_path = "#{File.dirname(@path)}/admin/assets/javascripts"
+      DiscoursePluginRegistry.register_glob(admin_path, 'js.es6', admin: true)
+      DiscoursePluginRegistry.register_glob(admin_path, 'hbs', admin: true)
     end
 
     self.instance_eval File.read(path), path
     if auto_assets = generate_automatic_assets!
-      assets.concat auto_assets.map{|a| [a]}
+      assets.concat(auto_assets)
     end
 
     register_assets! unless assets.blank?
+
+    seed_data.each do |key, value|
+      DiscoursePluginRegistry.register_seed_data(key, value)
+    end
 
     # TODO: possibly amend this to a rails engine
 
     # Automatically include assets
     Rails.configuration.assets.paths << auto_generated_path
     Rails.configuration.assets.paths << File.dirname(path) + "/assets"
+    Rails.configuration.assets.paths << File.dirname(path) + "/admin/assets"
+    Rails.configuration.assets.paths << File.dirname(path) + "/test/javascripts"
 
     # Automatically include rake tasks
     Rake.add_rakelib(File.dirname(path) + "/lib/tasks")
@@ -250,7 +342,8 @@ class Plugin::Instance
 
   def auth_provider(opts)
     provider = Plugin::AuthProvider.new
-    [:glyph, :background_color, :title, :message, :frame_width, :frame_height, :authenticator].each do |sym|
+
+    Plugin::AuthProvider.auth_attributes.each do |sym|
       provider.send "#{sym}=", opts.delete(sym)
     end
     auth_providers << provider
@@ -287,8 +380,12 @@ class Plugin::Instance
     end
   end
 
-  def enabled_site_setting(setting)
-    @enabled_site_setting = setting
+  def enabled_site_setting(setting=nil)
+    if setting
+      @enabled_site_setting = setting
+    else
+      @enabled_site_setting
+    end
   end
 
   protected
@@ -296,6 +393,15 @@ class Plugin::Instance
   def register_assets!
     assets.each do |asset, opts|
       DiscoursePluginRegistry.register_asset(asset, opts)
+    end
+  end
+
+  private
+
+  def write_asset(path, contents)
+    unless File.exists?(path)
+      ensure_directory(path)
+      File.open(path,"w") { |f| f.write(contents) }
     end
   end
 

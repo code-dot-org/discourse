@@ -5,6 +5,12 @@ module Validators; end
 class Validators::UploadValidator < ActiveModel::Validator
 
   def validate(upload)
+    # allow all attachments except S/MIME signatures
+    # cf. https://meta.discourse.org/t/strip-s-mime-signatures/46371
+    if upload.is_attachment_for_group_message && SiteSetting.allow_all_attachments_for_group_messages
+      return upload.original_filename != "smime.p7s".freeze
+    end
+
     extension = File.extname(upload.original_filename)[1..-1] || ""
 
     if is_authorized?(upload, extension)

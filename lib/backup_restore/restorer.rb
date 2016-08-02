@@ -1,14 +1,18 @@
 module BackupRestore
 
-  class RestoreDisabledError  < RuntimeError; end
+  class RestoreDisabledError < RuntimeError; end
   class FilenameMissingError < RuntimeError; end
 
   class Restorer
+    include BackupRestore::Utils
 
     attr_reader :success
 
-    def initialize(user_id, filename, publish_to_message_bus = false)
-      @user_id, @filename, @publish_to_message_bus = user_id, filename, publish_to_message_bus
+    def initialize(user_id, opts={})
+      @user_id = user_id
+      @client_id = opts[:client_id]
+      @filename = opts[:filename]
+      @publish_to_message_bus = opts[:publish_to_message_bus] || false
 
       ensure_restore_is_enabled
       ensure_no_operation_is_running
@@ -45,8 +49,6 @@ module BackupRestore
 
       switch_schema!
 
-      # TOFIX: MessageBus is busted...
-
       migrate_database
       reconnect_database
       reload_site_settings
@@ -66,15 +68,20 @@ module BackupRestore
     else
       @success = true
     ensure
-      notify_user rescue nil
-      clean_up
+      begin
+        notify_user
+        clean_up
+      rescue => ex
+        Rails.logger.error("#{ex}\n" + ex.backtrace.join("\n"))
+      end
+
       @success ? log("[SUCCESS]") : log("[FAILED]")
     end
 
     protected
 
     def ensure_restore_is_enabled
-      raise Restore::RestoreDisabledError unless Rails.env.development? || SiteSetting.allow_restore?
+      raise BackupRestore::RestoreDisabledError unless Rails.env.development? || SiteSetting.allow_restore?
     end
 
     def ensure_no_operation_is_running
@@ -89,7 +96,7 @@ module BackupRestore
     end
 
     def ensure_we_have_a_filename
-      raise Restore::FilenameMissingError if @filename.nil?
+      raise BackupRestore::FilenameMissingError if @filename.nil?
     end
 
     def initialize_state
@@ -156,17 +163,26 @@ module BackupRestore
     def copy_archive_to_tmp_directory
       log "Copying archive to tmp directory..."
       source = File.join(Backup.base_directory, @filename)
-      `cp #{source} #{@archive_filename}`
+      execute_command("cp '#{source}' '#{@archive_filename}'", "Failed to copy archive to tmp directory.")
     end
 
     def unzip_archive
-      log "Unzipping archive..."
-      FileUtils.cd(@tmp_directory) { `gzip --decompress #{@archive_filename}` }
+      log "Unzipping archive, this may take a while..."
+      FileUtils.cd(@tmp_directory) do
+        execute_command("gzip --decompress '#{@archive_filename}'", "Failed to unzip archive.")
+      end
     end
 
     def extract_metadata
       log "Extracting metadata file..."
-      FileUtils.cd(@tmp_directory) { `tar --extract --file #{@tar_filename} #{BackupRestore::METADATA_FILE}` }
+
+      FileUtils.cd(@tmp_directory) do
+        execute_command(
+          "tar --extract --file '#{@tar_filename}' #{BackupRestore::METADATA_FILE}",
+          "Failed to extract metadata file."
+        )
+      end
+
       @metadata = Oj.load_file(@meta_filename)
     end
 
@@ -181,7 +197,13 @@ module BackupRestore
 
     def extract_dump
       log "Extracting dump file..."
-      FileUtils.cd(@tmp_directory) { `tar --extract --file #{@tar_filename} #{BackupRestore::DUMP_FILE}` }
+
+      FileUtils.cd(@tmp_directory) do
+        execute_command(
+          "tar --extract --file '#{@tar_filename}' #{BackupRestore::DUMP_FILE}.gz",
+          "Failed to extract dump file."
+        )
+      end
     end
 
     def restore_dump
@@ -200,7 +222,7 @@ module BackupRestore
         end
       end
 
-      IO.popen("#{psql_command} 2>&1") do |pipe|
+      IO.popen("gzip -d < #{@dump_filename}.gz | #{sed_command} | #{psql_command} 2>&1") do |pipe|
         begin
           while line = pipe.readline
             logs << line
@@ -228,12 +250,33 @@ module BackupRestore
       [ password_argument,                # pass the password to psql (if any)
         "psql",                           # the psql command
         "--dbname='#{db_conf.database}'", # connect to database *dbname*
-        "--file='#{@dump_filename}'",     # read the dump
         "--single-transaction",           # all or nothing (also runs COPY commands faster)
         host_argument,                    # the hostname to connect to (if any)
         port_argument,                # the port to connect to (if any)
         username_argument                 # the username to connect as (if any)
       ].join(" ")
+    end
+
+    def sed_command
+      # in order to limit the downtime when restoring as much as possible
+      # we force the restoration to happen in the "restore" schema
+
+      # during the restoration, this make sure we
+      #  - drop the "restore" schema if it exists
+      #  - create the "restore" schema
+      #  - prepend the "restore" schema into the search_path
+
+      regexp = "SET search_path = public, pg_catalog;"
+
+      replacement = [ "DROP SCHEMA IF EXISTS restore CASCADE;",
+                      "CREATE SCHEMA restore;",
+                      "SET search_path = restore, public, pg_catalog;",
+                    ].join(" ")
+
+      # we only want to replace the VERY first occurence of the search_path command
+      expression = "1,/^#{regexp}$/s/#{regexp}/#{replacement}/"
+
+      "sed -e '#{expression}'"
     end
 
     def switch_schema!
@@ -255,6 +298,7 @@ module BackupRestore
       log "Migrating the database..."
       Discourse::Application.load_tasks
       ENV["VERSION"] = @current_version.to_s
+      User.exec_sql("SET search_path = public, pg_catalog;")
       Rake::Task["db:migrate"].invoke
     end
 
@@ -274,10 +318,13 @@ module BackupRestore
     end
 
     def extract_uploads
-      if `tar --list --file #{@tar_filename} | grep 'uploads/'`.present?
+      if `tar --list --file '#{@tar_filename}' | grep 'uploads/'`.present?
         log "Extracting uploads..."
         FileUtils.cd(File.join(Rails.root, "public")) do
-          `tar --extract --keep-newer-files --file #{@tar_filename} uploads/`
+          execute_command(
+            "tar --extract --keep-newer-files --file '#{@tar_filename}' uploads/",
+            "Failed to extract uploads."
+          )
         end
       end
     end
@@ -354,7 +401,7 @@ module BackupRestore
     def publish_log(message, timestamp)
       return unless @publish_to_message_bus
       data = { timestamp: timestamp, operation: "restore", message: message }
-      MessageBus.publish(BackupRestore::LOGS_CHANNEL, data, user_ids: [@user_id])
+      MessageBus.publish(BackupRestore::LOGS_CHANNEL, data, user_ids: [@user_id], client_ids: [@client_id])
     end
 
     def save_log(message, timestamp)

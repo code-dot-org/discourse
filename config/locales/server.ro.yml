@@ -16,12 +16,9 @@ ro:
   loading: "Încarcă"
   powered_by_html: 'Prin intermediul <a href="http://www.discourse.org">Discourse</a>, Vizualizare optimă cu JavaScript activat'
   log_in: "Autentificare"
-  via: "%{username} prin %{site_name}"
-  is_reserved: "este rezervat"
-  purge_reason: "Cont automat şters ca abandonat, neactivat"
   disable_remote_images_download_reason: "Descărcarea de imagini la distanţă a fost dezactivată deoarece nu mai era spaţiu pe disc suficient."
   anonymous: "Anonim"
-  errors:
+  errors: &errors
     format: '%{attribute} %{message}'
     messages:
       too_long_validation: "este limitat la %{max} de caractere; ați introdus %{length}."
@@ -75,6 +72,7 @@ ro:
   not_found: "Adresa URL sau resursă cerută nu pot fi găsite."
   invalid_access: "Nu aveţi permisiunea să vedeţi această resursă."
   read_only_mode_enabled: "Site-ul este în modul doar-citire. Interacțiunile sunt dezactivate."
+  likes: "Aprecieri"
   too_many_replies:
     one: "Ne pare rău, dar utilizatori noi sunt limitaţi la 1 răspuns pe discuţie."
     few: "Ne pare rău, dar utilizatori noi sunt limitaţi la %{count} răspunsuri pe discuţie."
@@ -90,30 +88,9 @@ ro:
       one: "1 răspuns"
       few: "răspunsuri"
       other: "%{count} răspunsuri"
-  too_many_mentions:
-    zero: "Ne pare rău, nu poți menționa alți utilizatori"
-    one: "Ne pare rău, poți menționa doar un utilizator într-o postare."
-    other: "Ne pare rău, poți menționa doar %{count} de utilizatori într-o postare."
-  too_many_mentions_newuser:
-    zero: "Ne pare rău, utilizatorii noi nu pot face mențiuni catre alți utilizatori."
-    one: "Ne pare rău, utilizatorii noi pot menționa doar un alt utilizator într-o postare."
-    other: "Ne pare rău, utilizatorii noi pot menționa doar %{count} de utilizatori într-o postare."
-  too_many_images:
-    zero: "Ne pare rău, utilizatorii noi nu pot urca imagini în postări."
-    one: "Ne pare rău, utilizatorii noi pot urca doar o imagine într-o postare."
-    other: "Ne pare rău, utilizatorii noi pot urca doar %{count} de imagini într-o postare."
-  too_many_attachments:
-    zero: "Ne pare rău, utilizatorii noi nu pot pune atașamente în postări."
-    one: "Ne pare rău, utilizatorii noi pot pune doar un atașament într-o postare."
-    other: "Ne pare rău, utilizatorii noi pot pune doar %{count} de atașamente într-o postare."
-  too_many_links:
-    zero: "Ne pare rău, utilizatorii noi nu pot adăuga adrese în postări."
-    one: "Ne pare rău, utilizatorii noi pot adăuga doar o adresă într-o postare'."
-    other: "Ne pare rău, utilizatorii noi pot adăuga doar %{count} de adrese într-o postare."
   spamming_host: "Ne pare rău, nu puteți adăuga o adresă acestei gazde."
   user_is_suspended: "Utilizatorii suspendați nu au dreptul de a posta."
   just_posted_that: "este prea similar cu ceea ce ați postat recent"
-  has_already_been_used: "deja este în folosința"
   invalid_characters: "conține caractere invalide"
   is_invalid: "este invalid; încercați o descriere mai detaliată"
   next_page: "urmatoarea pagină →"
@@ -137,7 +114,6 @@ ro:
     delete_reason: "Şters via coadă de moderare"
   groups:
     errors:
-      can_not_modify_automatic: "Nu puteți modifica un grup automat"
       member_already_exist: "'%{username}' este deja membru al acestui grup"
     default_names:
       everyone: "toată lumea"
@@ -155,23 +131,15 @@ ro:
       few: "%{count} postări"
       other: "%{count} postări"
     new-reply: |
-      Bine ați venit la %{site_name} &mdash; **Mulțumim pentru contribuție!**
+      Bine ai venit la %{site_name} &mdash; **Mulțumim pentru contribuție!**
 
-      - Răspunsul dvs îmbunatațește discuția în vreun fel?
+      - Răspunsul tău îmbunatațește discuția în vreun fel?
 
-      - Fiți amabili cu membrii comunitații.
+      - Fii amabil cu membri comunității.
 
-      - Critica constructivă e bine venită, criticați *ideea*, nu oamenii.
+      - Critica constructivă e binevenită, criticați *ideea*, nu oamenii.
 
-      Pentru detalii, [verificați regulile comune](/reguli). Acest panel v-a apărea doar pentru prima %{education_posts_text}.
-    avatar: |
-      ### Ce spuneți de o poză nouă pt cont?
-
-      ați postat câteva discuții și răspunsuri, dar avatarul dvs nu este asa unic ca persoana dvs -- Este avatarul implicit.
-
-      V-ați gândit să **[vizitați profilul de utilizator](%{profile_path})** și sa încărcați imaginea care vă reprezintă?
-
-      Este mai ușor să urmăriți discuțiile din comunitate și să găsiți persoane interesante în conversații când fiecare are un avatar unic!
+      Pentru detalii, [verifică regulile comune](/reguli). Acest panel va apărea doar pentru prima %{education_posts_text}.
     dominating_topic: |
       ### Permite și altora să se alăture la conversație
 
@@ -187,9 +155,9 @@ ro:
     reviving_old_topic: |
       ### Reînvie această discuție?
 
-      Ultimul răspuns la această discuție a fost dat acum %{days} de zile. Răspunsul dvs v-a merge în capătul listei și toată lumea ce a fost implicată precedent în discuție v-a fi notificată.
+      Ultimul răspuns la această discuție a fost dat acum %{days} de zile. Răspunsul tăuva merge în capătul listei și toată lumea ce a fost implicată în discuție va fi notificată.
 
-      Sunteți sigur că doriți să continuați această conversație veche?
+      Ești sigur că dorești să continui această conversație?
   activerecord:
     attributes:
       category:
@@ -199,15 +167,14 @@ ro:
       user_profile:
         bio_raw: "Despre Mine"
     errors:
-      messages:
-        is_invalid: "invalid; încercați să fiți unpic mai explicit"
-        has_already_been_used: "deja este folosit"
       models:
         topic:
           attributes:
             base:
               warning_requires_pm: "Puteţi ataşa avertizări doar la mesajele private."
               too_many_users: "Puteţi trimite avertizări la un singur utilizator odată."
+              cant_send_pm: "Ne pare rău, nu puteți trimite un mesaj privat acelui utilizator."
+              no_user_selected: "Trebuie selectat un nume de utilizator valid."
         user:
           attributes:
             password:
@@ -218,12 +185,12 @@ ro:
           attributes:
             hex:
               invalid: "nu este o culoare validă"
+      <<: *errors
   user_profile:
     no_info_me: "<div class='profil-lipsa'>câmpul despre mine din profilul dvs este gol momentan, <a href='/useri/%{username_lower}/preferințe/despre-mine'>Doriți să-l completați?</a></div>"
     no_info_other: "<div class='profil-lipsă'>%{name} nu a introdus înca nimic în câmpul despre mine din profil</div>"
   vip_category_name: "Lounge"
   vip_category_description: "O categorie dedicată exclusiv celor cu nivelul de încredere 3 sau mai mare"
-  meta_category_name: "Meta"
   meta_category_description: "Discuții despre acest forum, organizare, funcționare și cum îl putem îmbunătății."
   staff_category_name: "Personalul"
   staff_category_description: "Categorie privată pentru discuțiile personalului. Discuțiile sunt vizibile doar adminilor și moderatorilor."
@@ -254,8 +221,6 @@ ro:
       [trust]: https://meta.discourse.org/t/what-do-user-trust-levels-do/4924
   category:
     topic_prefix: "Despre categoria %{category}"
-    replace_paragraph: "[Înlocuiește acest paragraf cu o scurtă descriere despre categorie. Acest îndemn va apărea în aria de selectare a categoriei, deci încercați să aibă sub 200 caractere. Pană nu editați acest text sau creați o nouă discuție, Această categorie nu v-a apărea în pagina de categorii.]"
-    post_template: "%{replace_paragraph}\n\n Folosește următoarele paragrafe pentru o descriere mai lungă, cât și pentru a stabili orice regulă de bază sau de ajutor a categoriei.\n\n Câteva lucruri de avut în vedere în orice discuție mai jos: \n\n- Pentru ce este această categorie? De ce ar selecta alte persoane această categorie pentru discuțiile lor?\n\n- În ce fel este diferită față de celălalte existente?\n\n- Avem nevoie de această categorie?\n\n- Ar trebuii unită cu o altă categorie, sau divizată în alte 2?\n"
     errors:
       uncategorized_parent: "ce nu este categorisit nu poate avea categorie părinte"
       self_parent: "Părintele unei subcategorii nu poate fi ea însăși"
@@ -268,12 +233,6 @@ ro:
       title: "utilizator nou"
     basic:
       title: "utilizator de bază"
-    regular:
-      title: "utilizator normal"
-    leader:
-      title: "lider"
-    elder:
-      title: "bătrân"
     change_failed_explanation: "Ați încercat să retrogradați utilizatorul %{user_name} la nivelul '%{new_trust_level}'. Totuși nivelul este deja '%{current_trust_level}'. %{user_name} va rămâne la '%{current_trust_level}'"
   rate_limiter:
     too_many_requests: "Există o limită zilnică de executare a acelei acțiuni. Vă rugăm așteptați %{time_left} până încercați iar."
@@ -350,6 +309,18 @@ ro:
         one: "mai puţin de 1 minut în urmă"
         few: "mai puţin de %{count} minute în urmă"
         other: "mai puţin de %{count} minute în urmă"
+      x_minutes:
+        one: "acum 1 minut"
+        few: "acum %{count} minute"
+        other: "acum %{count} minute"
+      about_x_hours:
+        one: "acum o ora"
+        few: "acum %{count} ore"
+        other: "acum %{count} ore"
+      x_days:
+        one: "acum o zi"
+        few: "acum %{count} zile"
+        other: "acum %{count} zile"
   password_reset:
     choose_new: "Alegeți o parolă nouă"
     choose: "Alegeți o parolă"
@@ -364,12 +335,11 @@ ro:
     please_continue: "Continuă cu %{site_name}"
     error: "S-a semnalat o eroare la schimbarea adresei de Email. Poate adresa deja e folosită?"
   activation:
-    action: "Activați contul dvs"
     already_done: "Ne pare rău, această adresă pentru confirmarea contului nu mai este valabilă. Poate contul dvs este deja activ?"
     please_continue: "Noul dvs cont este confirmat, iar acum sunteți autentificat."
     continue_button: "Continuă cu %{site_name}"
     welcome_to: "Bine ați venit la %{site_name}!"
-    approval_required: "Un moderator trebuie să aprobe manual contul înaine să puteți accesa forumul. Veți primii un email când acesta a fost aprobat!"
+    approval_required: "Un moderator trebuie să aprobe manual contul înaine să puteți accesa forumul. Vei primi un email când acesta a fost aprobat!"
   post_action_types:
     off_topic:
       title: 'În afară discuției'
@@ -381,17 +351,13 @@ ro:
       long_form: 'marchează aceasta ca spam'
     inappropriate:
       title: 'Necorespunzător'
-      description: 'Această postare are conținut pe care o persoană normală l-ar numii ofesator, abuziv, sau o violare a <a href="/guidelines"> regulilor comune</a>.'
+      description: 'Această postare are conținut ce ar putea fi considerat drept ofesator, abuziv, sau o violare a <a href="/guidelines"> regulilor comune</a>.'
       long_form: 'marcat ca necorespunzător'
     notify_user:
-      description: 'Această postare conține ceva despre care aș vrea să discut direct și privat cu acestă persoană.'
       email_title: 'Despre postarea dvs din "%{title}"'
       email_body: "%{link}\n\n%{message}"
     notify_moderators:
       title: "Notifică moderatorii"
-      description: 'Această postare necesită atenția generală a moderatorilor bazat pe <a href="/guidelines">guidelines</a>, <a href="%{tos_url}">TOS</a>, sau pentru un alt motiv ne-listat mai sus.'
-      long_form: 'moderatori notificați'
-      email_title: 'O postare din "%{title}" necesită atenția moderatorilor'
       email_body: "%{link}\n\n%{message}"
     bookmark:
       title: 'Semn de carte'
@@ -412,11 +378,10 @@ ro:
       long_form: 'Marchează asta ca spam'
     inappropriate:
       title: 'Necorespunzător'
-      description: 'Această discuție are conținut pe care o persoană normală l-ar numii ofesantor, abuziv, sau o violare a <a href="/guidelines"> regulilor comune</a>.'
+      description: 'Această discuție are conținut ce ar putea fi considerat drept ofesantor, abuziv, sau o violare a <a href="/guidelines"> regulilor comune</a>.'
       long_form: 'marcat ca necorespunzător'
     notify_moderators:
       title: "Notifică moderatori"
-      description: 'Această discuție necesită atenția generală a moderatorilor bazat pe  <a href="/guidelines">guidelines</a>, <a href="%{tos_url}">TOS</a>, sau pentru un alt motiv ne-listat mai sus.'
       long_form: 'moderatori notificați'
       email_title: 'discuția "%{title}" necesită atenția moderatorilor'
       email_body: "%{link}\n\n%{message}"
@@ -434,9 +399,7 @@ ro:
     description: "Ați fost dezabonat. Nu vă vom mai contacta!"
     oops: "În cazul în care nu intenționați asta, faceți click dedesubt."
     error: "Eroare la dezabonare"
-    preferences_link: "Vă puteți dezabona și de la mailurile-rezumat din <a href='/my/preferences'>pagina de preferințe</a>"
-    different_user_description: "Acum sunteți autentificat ca drept alt utilizator decât acela căruia i-a fost tirmis mailul-rezumat. Vă rugăm schimbați utilizatorul și încercați iar."
-    not_found_description: "Ne pare rău, nu v-am putut dezabona. Este posibil ca adresa din email să fi expirat."
+    not_found_description: "Ne pare rău, nu te-am putut dezabona. Este posibil ca adresa din email să fi expirat."
   resubscribe:
     action: "Reabonare"
     title: "Reabonat!"
@@ -557,42 +520,12 @@ ro:
     github_config_warning: 'Serverul e configurat să permită autentificarea și logarea cu GitHub (enable_github_logins), dar id-ul de client și valorile secrete nu sunt setate. Mergeți la <a href="/admin/site_settings">Setările site-ului</a> și modificați setarea. <a href="https://meta.discourse.org/t/configuring-github-login-for-discourse/13745" target="_blank">Vizualizați ghidul pentru mai multe informații</a>.'
     s3_config_warning: 'Serverul este configurat să încarce fișierele cître s3, dar cel puțin una din următoarele setări nu sunt potrivite: id_cheie_acces_s3, cheia_acces_secret_s3 sau loc_încărcare_s3. Mergeți la <a href="/admin/site_settings">setările site-ului</a> și modificați setările. <a href="http://meta.discourse.org/t/how-to-set-up-image-uploads-to-s3/7229" target="_blank">Vedeți "Cum să potrivesc imaginea încărcată la S3?" pentru a învăța mai multe</a>.'
     image_magick_warning: 'Serverul este configurat să creeze thumbnail-uri din imagini mari, dar ImageMagick nu e instalat. Instalați ImageMagick <a href="http://www.imagemagick.org/script/binary-releases.php" ținta="_blank">downlodați ultima versiune</a>.'
-    failing_emails_warning: 'sunt %{num_failed_jobs} de operații via email eșuate. Verificați fișierul config/discourse.conf și asigurați-vă că setările emailului sunt corecte. <a href="/sidekiq/retries" tinta="_blank">vedeți operațiunile eșuate în Sidekiq</a>.'
     default_logo_warning: "Nu ați ales imaginile logo pentru site-ul dvs. Reactualiza-ți logo_url, logo_small_url și favicon_url în <a href='/admin/site_settings'>Setările site-ului</a>."
     contact_email_invalid: "Emailul de contact al site-ului este invalid. Vă rugăm reactualizați emailul de contact în <a href='/admin/site_settings'> setările site-ului</a>."
     title_nag: "Opțiunea titlul de site este încă la valoarea inițială. Vă rugăm reactualiza-ți cu titlul site-ului în <a href='/admin/site_settings'>setările site-ului</a>."
     site_description_missing: "Opțiunea descriere_site nu este completată. Scrieți o scurtă descriere a forum-ului în <a href='/admin/site_settings'>setările site-ului</a>."
     consumer_email_warning: "Site-ul dvs e configurat să folosească Gmail(sau alt serviciu de email) pentru a trimite emailuri. <a href='http://support.google.com/a/bin/answer.py?hl=en&answer=166852' tinta='_blank'>Gmail limitează numărul de email-uri trimise</a>. Folosiți un provider de mailuri ca mandrill.com pentru a asigura trimiterea mail-urilor."
     notification_email_warning: "Opțiunea notificare_email este goală. Vă rugăm modificați-o în <a href='/admin/site_settings'>Setările site-ului</a>."
-  content_types:
-    education_new_reply:
-      title: "Insturirea noului utilizator: Primele răspunsuri"
-      description: "Apar ghidările automat deasupra spațiului de compus când noul utilizator începe să scrie primele două răspunsuri."
-    education_new_topic:
-      title: "Insturirea noului utilizator: Primele Discuții"
-      description: "Apar ghidările automat deasupra spațiului de compus când noul utilizator începe să scrie primele două discuții."
-    usage_tips:
-      title: "Sfaturile noului utilizator"
-      description: "Sfaturile comune, informațiile esențiale forumului și intruirile cheie pentru utilizatorii noi."
-    welcome_user:
-      title: "Bine ai venit: Utilizator nou"
-    welcome_invite:
-      title: "Bine ai venit: Utilizator invitat"
-    login_required_welcome_message:
-      title: "Autentificare necesară: Mesaj de întâmpinare"
-      description: "Mesaj de întâmpinare afișat tuturor utilizatorilor delogați când setarea 'Autentificare necesară' este activată."
-    login_required:
-      title: "Autentificare necesară: Pagina principală"
-      description: "Textul afișat pentru utilizatorii neautorizați când autentificarea e necesară în site."
-    head:
-      title: "Cap HTML"
-      description: "HTML inserat între tagurile <head></head>."
-    top:
-      title: "Capătul paginilor"
-      description: "HTML ce va fi adăugat în capătul fiecărei pagini (după header, îainte de navigarea către titlul discuției)."
-    bottom:
-      title: "Sfârșitul paginilor"
-      description: "HTML ce va fi adăugat la sfârșitul fiecărei pagini."
   site_settings:
     default_locale: "Limba oficială a acestei instanțe de discurs (ISO 639-1 Code)"
     allow_user_locale: "Permite utilizatorilor să aleagă preferința de limbă pentru interfață"
@@ -601,8 +534,6 @@ ro:
     min_topic_title_length: "Minimul de caractere permis per discuție"
     max_topic_title_length: "Maximul de caractere permis per discuție"
     min_search_term_length: "Minimul de caractere permis pentru o căutare validă"
-    allow_uncategorized_topics: "Permite discuțiilor să fie create fără o categorie."
-    uncategorized_description: "Descrierea categoriei necategorisite. Lăsați liber pentru nicio descriere."
     allow_duplicate_topic_titles: "Permite discuții cu titluri duplicate sau identice."
     unique_posts_mins: "Câte minute până un utilizator poate posta iar cu același conținut"
     educate_until_posts: "Când utilizatorul începe să scrie primele (n) postări, arată panelul de instruire în spațiul pentru compunere."
@@ -613,7 +544,6 @@ ro:
     download_remote_images_to_local: "Transformă imaginile de legătură în imagini locale downloadându-le; asta previne stricarea imaginilor."
     download_remote_images_threshold: "Spațiul mimin necesar pentru download-ul imaginilor de legătura local (în procente)"
     disabled_image_download_domains: "Imagini de legătură nu vor mai fi downloadate din aceste domenii. Listă delimitata-vertical."
-    ninja_edit_window: "Pentru (n) secunde după postare, editarea nu va crea o versune nouă în istoricul postării."
     post_edit_time_limit: "Autorul poate edita sau șterge postarea până la (n) minute după postare. Setați 0 pentru totdeauna."
     edit_history_visible_to_public: "Permite oricui să vadă versiunea precedentă a unei postări editate. Când e dezactivat, doar membrii personalului pot vedea."
     delete_removed_posts_after: "Postările înlăturate de către autor vor fi automat șterse după (n) de ore."
@@ -626,12 +556,9 @@ ro:
     post_excerpt_maxlength: "Lungimea maximă a unui extras / sumar dintr-o postare."
     post_onebox_maxlength: "Lungimea maximă a postării discursului-scurt în caractere."
     onebox_domains_whitelist: "O listă de domenii permise pentru discursul-scurt; aceste domenii ar trebuii să permită OpenGraph sau oEmbed. Testați-le la http://iframely.com/debug"
-    digest_logo_url: "Logo-ul alternativ folosit în capătul emailu-lui-rezumat din site. Dacă este gol, va fi folosit `logo_url`. eg: http://example.com/logo.png"
-    favicon_url: "O iconiță-favorită pentru site, verificați http://en.wikipedia.org/wiki/Favicon"
     apple_touch_icon_url: "Iconiță folosită pentru dispozitivele Apple. Mărimea recomandată este 144px pe 144px."
     notification_email: "Adresa autorului emailu-ului este folosită când se trimit emailuri esențiale de sistem. Domeniul specificat aici trebuie să aibă SPF, DKIM și rapoarte PTR inversate, setate corect pentru că email-ul să ajungă la destinație."
     email_custom_headers: "O listă delimitată vertical a capetelor de email preferențiale"
-    use_https: "Ar trebuii ca întregul URL de site(Discourse.base_url) să fie http sau http-uri? NU ACTIVA ACEASTĂ DECÂT DACĂ HTTP-URILE SUNT DEJA FINCȚIONABILE!"
     summary_score_threshold: "Scorul mimim necesar pentru o postare să fie inclus în 'Sumarul acestei postări'"
     summary_posts_required: "Minimul de postări într-o discuție înainte de 'Sumarul acestei discuții' este activat"
     summary_likes_required: "Minimul de aprecieri într-o discuție înainte de 'Sumarul acestei discuții' este activat"
@@ -640,8 +567,6 @@ ro:
     long_polling_interval: "Intervalul înainte de sondaj este dat în milisecunde "
     polling_interval: "Cât de des e intervalul de sondaj în milisecunde al utilizatorilor autentificați"
     anon_polling_interval: "Cat de des e intervalul de sondaj în milisecunde al clienților anonimi"
-    auto_track_topics_after: "Intervalul global de milisecunde până ce o discuție să fie urmărită automat, utilizatorii pot schimba (0 pt totdeauna, -1 pt niciodată)"
-    new_topic_duration_minutes: "Intervalul global oficial de minute cât o discuție e considerată nouă, utilizatorii pot schimba (-1 pt totdeauna, -2 pt ultima vizită)"
     cooldown_minutes_after_hiding_posts: "Numărul de minute pr care un utilizator trebuie să le aștepte până când poate edita sau ascunde o postare prin marcajele comune"
     num_flags_to_block_new_user: "Dacă postarea unui utilizator nou primește atâtea marcaje de spam de la num_utilizatori_blocare_utilizator_nou dferiti utilizatori, se vor ascunde toate postările respectivului și va fi incapacitat să mai posteze. 0 pt dezactivare."
     num_users_to_block_new_user: "Dacă postarea unui utilizator nou primește num_flags_to_block_new_user marcaje de spam de la atâția utilizatori, se vor ascunde toate postările respectivului și va fi incapacitat să mai posteze. 0 pt dezactivare."
@@ -652,7 +577,6 @@ ro:
     ga_domain_name: "Numele de domeniu al Google analytics (ga.js), ex: mysite.com; see http://google.com/analytics"
     ga_universal_tracking_code: "Codul de urmarie al Google Universal Analytics (analytics.js), ex: UA-12345678-9; see http://google.com/analytics"
     ga_universal_domain_name: "Numele de domeniu al Google Universal Analytics (analytics.js) , ex: mysite.com; see http://google.com/analytics"
-    enable_escaped_fragments: "Întoarce-te la Google's Ajax-Crawling API dacă nu e detectat webcrawler-ul. See https://support.google.com/webmasters/answer/174992?hl=en"
     enable_noscript_support: "Activează căutarea standardă a webcrawler-ului prin tagul noscript"
     allow_moderators_to_create_categories: "Permite moderatorilor să creeze noi categorii"
     post_menu: "Determină ce elemente apar în meniul de postare și în ce ordine . Exemple apreciere|editează|marchează|șterge|distribuie|semne de carte|răspunde"
@@ -673,14 +597,9 @@ ro:
     invite_expiry_days: "Cat timp sun valabile cheile de invitație ale utilizatorilor, în zile"
     invite_passthrough_hours: "Cât timp un utilizator poate folosii o cheie de invitație recuperată anterior pentru autentificare, în ore"
     invite_only: "Înregistrarea publică este dezactivată, toți utilizatorii noi trebuie să fie exclusiv invitați de un alt membru sau personalul site-ului."
-    login_required: "Autentificarea e necesară pentru a citii conținutul site-ului, nu permite accesul anonim."
-    min_username_length: "Minimul de caractere pentru numele de utilizator. ATENȚIE: ORICE UTILIZATOR EXISTENT CU NUMELE MAI SCURT DE ATÂT NU VA PUTEA ACCESA SITE-UL."
-    max_username_length: "Maximul de carcatere pentru numele de utilizator. ATENȚIE: ORICE UTILIZATOR EXISTENT CU NUMELE MAI LUNG DE ATÂT NU VA PUTEA ACCESA SITE-UL.."
+    login_required: "Autentificarea este necesară pentru a citi conținutul site-ului, nu permite accesul anonim."
     min_password_length: "Lungimea minimă de caractere pentru parolă."
     block_common_passwords: "nu permite parole ce sunt în cele 10,000 cele mai cunoscute parole."
-    sso_url: "URL-ul semnului singular în punctul de sfârșit"
-    sso_overrides_email: "Rescrie email-ul local cu email-ul extern de site din payload-ul SSO (ATENȚIE: discrepanțe pot apărea datorită normalizării email-urilor locale)"
-    sso_overrides_username: "Rescrie numele de utilizator local cu numele utilizator extern de site din payload-ul SSO (ATENȚIE: discrepanțe pot apărea datorită diferenței de lungime/cernite)"
     enable_local_logins: "Activează numele de utilizator local și a conturilor bazate pe logare cu parola. (Notă: Aceasta trebuie activiată pentru invitații pt a funcționa)"
     allow_new_registrations: "Permite înregistrarea noilor utilizatori . Debifați pentru a restricționa oricui să creeze un cont nou."
     enable_yahoo_logins: "Activează autentificarea cu Yahoo"
@@ -698,7 +617,6 @@ ro:
     github_client_secret: "Secretul clientului pentru autentificarea cu Github, înregistrat la https://github.com/settings/applications"
     allow_restore: "Permite rescrierea, ceea ce poate înlocuii TOATE datele din site! Lasăți necompletat decât dacă doriți să reluați o rezervă"
     maximum_backups: "Maximul de rezerve de pe disc. Rezervele vechi sunt șterse automat"
-    backup_daily: "Creează automat o rezervă a site-ului odată pe zi."
     enable_s3_backups: "Încarcă rezervele pe s3 când sunt complete. Fiți sigur că ați completat acreditarea s3."
     s3_backup_bucket: "Folosește compartimentul de legătură pentru a ține rezerve. Atenție: Asigurați-vă că este un compartiment privat."
     active_user_rate_limit_secs: "Cât de de se actializează câmpul 'last_seen_at', în secunde"
@@ -732,7 +650,7 @@ ro:
     newuser_max_mentions_per_post: "Numărul maxim de notificări de @nume poate folosii un utilizator nou într-o postare."
     newuser_max_replies_per_topic: "Numărul maxim de răspunsuri un utilizator nou poate adăuga într-o singură discuție până când cineva le răspunde."
     max_mentions_per_post: "Numărul maxim de notificări de @nume oricine poate folosii într-o postare."
-    create_thumbnails: "Crează previzualizari de tipul thumbnail și lightbox ale imaginilor ce sunt prea mari să încapă într-o postare."
+    create_thumbnails: "Creează previzualizari de tipul thumbnail și lightbox ale imaginilor ce sunt prea mari să încapă într-o postare."
     email_time_window_mins: "Așteaptă (n) minute până să trimiți orice email de notificare, pentru a da utilizatorilor șansa să-și editeze și să-și finalizeze postările."
     email_posts_context: "Câte răspunsuri precedente să fie incluse ca context în email-urile de notificare."
     flush_timings_secs: "Cât de frecvent se resetează timpul de pe server, în secunde."
@@ -753,7 +671,6 @@ ro:
     faq_url: "Dacă aveți un FAQ găzduit în altă parte pe care doriți să-l folosiți, postați întregul URL aici."
     tos_url: "Dacă aveți un document Termeni și condiții găzduit în altă parte pe care doriți să-l folosiți, postați întregul URL aici."
     privacy_policy_url: "Dacă aveți un document de Politica de Confidențialitate găzduit în altă parte, pe care a-ți dorii să-l folosiți, postați întregul URL aici."
-    newuser_spam_host_threshold: "De câte ori un utilizator poate posta o adresă către aceiași gazdă cu postarea `newuser_spam_host_posts` înainte de a fi considerat spam."
     white_listed_spam_host_domains: "O listă de domenii exclusă pentru testarea spam. Utilizatorii nu vor fi niciodată restricționați în a crea postări cu adrese către aceste domenii."
     staff_like_weight: "Cat de mare este factorul de adaos pentru a trimite aprecieri personalului."
     levenshtein_distance_spammer_emails: "Când se face potrivirea email-urilor spam, numărul de caractere diferite care permit o potrivire aproximată."
@@ -767,16 +684,9 @@ ro:
     delete_all_posts_max: "Numărul maxim de postări ce pot fi șterse deodată folosind butonul Șterge toate postările. Dacă un utilizator are mai multe postări decât această valoare, postările nu pot fi șterse toate odată și utilizatorul nu poate fi șters."
     username_change_period: "Numărul de zile după înregistrare în care conturile își pot schimba numele de utilizator (0 la nu permite schimbarea numelui de utilizator)."
     email_editable: "Permite utilizatorilor să schimbe propria adresa de email după înregistrare."
-    allow_uploaded_avatars: "Permite utilizatorilor să încarce avatare preferențiale."
-    allow_animated_avatars: "Permite utilizatorilor să folosească avatare animate .gif. ATENȚIE: Pornește avatarele: reînprospătează rata de refresh după schimbarea acestei opțiuni."
     automatically_download_gravatars: "Descarcă Gravatare pentru utilizatori la crearea contului sau schimbarea email-ului."
-    digest_topics: "Numărul maxim de discuții arătate în email-ul rezumat."
-    digest_min_excerpt_length: "Numărul minimum de extrase din postări din email-ul rezumat, în caractere."
-    default_digest_email_frequency: "Cat de des utliziatorii primesc emailuri rezumat din oficiu. Utilizatorii pot schimba această opțiune în preferințe."
-    detect_custom_avatars: "Dacă sau nu să se verifice dacă utilizatorii au încărcat avatare preferențiale."
     max_daily_gravatar_crawls: "Numărul maxim de verificări făcute de Discourse pentru existența unui gravatar preferențial într-o zi"
     allow_profile_backgrounds: "Permite utilizatorilor să încarce fundaluri de profil."
-    sequential_replies_threshold: "Numărul de postări la rând într-o discuție până să-i fie amintit utilizatorului că sunt prea multe răspunsuri secvențiale. "
     enable_mobile_theme: "Dispozitivele mobile folosesc o temă cu abilitatea de a schimba la întregul site. Dezactivați pentru a folosii un foiae de stil preferențiala ce este total compatibilă."
     dominating_topic_minimum_percent: "Ce procent din postări într-o discuție trebuie să facă un utilizator înainte de ai fi amintit că domină discuția."
     suppress_uncategorized_badge: "Nu arăta insigna pentru discuțiile fără categorie în lista de discuții."
@@ -790,17 +700,15 @@ ro:
     autohighlight_all_code: "Forțează aplicarea de iluminat cod către toate preformatările de blocări de cod chiar când este explicit specificată limba."
     feed_polling_enabled: "DOAR ÎNCORPOREAZĂ: Să încorporeze un RSS/ATOM ca postare."
     feed_polling_url: "DOAR ÎNCORPOREAZĂ: URL de RSS/ATOM să încorporeze."
-    embed_by_username: "Numele de utilizator Discourse al utilizatorului ce crează discuții încorporate."
+    embed_by_username: "Utilizatorul care creează subiecte embedded."
     embed_username_key_from_feed: "Discourse username of the user who creates the embedded topics.."
     embed_truncate: "Truncate the embedded posts."
-    embed_category: "categoria discuțiilor încorporate."
     embed_post_limit: "Numărul maxim de postări de încorporat."
     embed_whitelist_selector: "Selector CSS pentru elementele ce sunt permise în încorporări."
     embed_blacklist_selector: "Selector CSS pentru elementele ce sunt scoase din încorporări"
     notify_about_flags_after: "Dacă sunt marcaje ce nu au fost aranjate după atâtea ore, Trimite un email la email-ul de contact . Setați  0 pentru a dezactiva."
     enable_cdn_js_debugging: "Permite /rapoarte să afișeze erori adăugând permisiune crossorigin tuturor js-urilor incluse."
     show_create_topics_notice: "Dacă site-ul are mai puțin de 5 discuții publice, afișează o notificare ce cere adminilor să creeze discuții."
-    vacuum_db_days: "Pornește ANALIZĂ COMPLETĂ VACUUM pentru a re-obține spațiul DB după migrări (setează 0 pt dezactivare)"
     enable_emoji: "Activează emoji"
     errors:
       invalid_email: "Adresa de email invalidă."
@@ -831,7 +739,7 @@ ro:
   original_poster: "Autorul Original"
   most_posts: "Cele mai multe postări"
   most_recent_poster: "Cele mai recente postări"
-  frequent_poster: "postări fregvente"
+  frequent_poster: "postări frecvente"
   redirected_to_top_reasons:
     new_user: "Bine ați venit la comunitatea noastră! Aici sunt cele mai populare discuții."
   change_owner:
@@ -869,7 +777,6 @@ ro:
       characters: "trebuie să includă doar numere, litere și underscor-uri"
       unique: "trebuie să fie unice"
       blank: "trebuie să fie completat"
-      must_begin_with_alphanumeric: "trebuie să înceapă cu o literă sau un număr"
     email:
       not_allowed: "nu este permis din partea acelui furnizor de servicii email. Vă rugăm folosiți altă adresă email."
       blocked: "nu este permis."
@@ -893,63 +800,17 @@ ro:
       Aceasta invitație este de la un utilizator de încredere, deci puteți răspunde discuției cât mai curând.
   invite_forum_mailer:
     subject_template: "%{invitee_name} te-a invitat să te alături %{site_domain_name}"
-    text_body_template: |
-      %{invitee_name} te-a invitat să te alături
-
-      > **%{site_title}**
-      >
-      > %{site_description}
-
-      Dacă sunteți interesat, click pe adresa de dedesubt:
-
-      %{invite_link}
-
-      Aceasta invitație este de la un utilizator de încredere, nu este neapărată nevoie să fii autentificat.
   invite_password_instructions:
     subject_template: "Setaţi parolă pentru contul dvs. %{site_name}"
   test_mailer:
     subject_template: "[%{site_name}] Testul de trimitere Email"
   new_version_mailer:
     subject_template: "[%{site_name}] O nouă versiune de Discourse, reactializare valabilă"
-    text_body_template: |
-      O nouă versiune de [Discourse](http://www.discourse.org) este valabilă.
-
-      Your version: %{installed_version}
-      New version: **%{new_version}**
-
-      Poate ați dorii să:
-
-      - Vedeți ce mai e nou în [ registrul de schimbări GitHub](https://github.com/discourse/discourse/commits/master).
-
-      - Reactualizați vizitând [%{base_url}/admin/docker](%{base_url}/admin/docker) Și apăsând butonul "Actualizare".
-
-      - Vizitați [meta.discourse.org](http://meta.discourse.org) pentru noutăți, disctii, și ajutor pentru Discourse.
   new_version_mailer_with_notes:
     subject_template: "[%{site_name}] update Actualizare valabilă"
-    text_body_template: |
-      O nouă versiune de [Discourse](http://www.discourse.org) este valabilă.
-
-      Versiunea actuală: %{installed_version}
-      Versiunea nouă: **%{new_version}**
-
-      Poate ați dori să:
-
-      - Vezi ce e nou în [registrul de schimbări GitHub](https://github.com/discourse/discourse/commits/master).
-
-      - Reactualizați vizitând [%{base_url}/admin/docker](%{base_url}/admin/docker), Și apăsând butonul "Actualizare".
-
-      - Vizitați [meta.discourse.org](http://meta.discourse.org) pentru noutăți, discutii, și ajutor pentru Discourse.
-
-      ### Release notes
-
-      %{notes}
-  flags_reminder:
-    please_review: "Vă rugăm revizionați-le."
-    post_number: "postarea"
-    how_to_disable: 'Arata acest email schimbând setarea notify_about_flags_after la valoarea 0.'
   flags_dispositions:
     agreed: "Mulțumim pentru avertizare. Suntem de acord că există o problemă și ne vom interesa."
-    agreed_and_deleted: "Mulțumim pentru avertizare. Suntem de acord că este o problemă și postarea v-a fi eliminată."
+    agreed_and_deleted: "Mulțumim pentru avertizare. Suntem de acord că este o problemă și postarea va fi eliminată."
     disagreed: "Mulțumim pentru avertizare. Ne vom interesa."
   system_messages:
     post_hidden:
@@ -975,86 +836,10 @@ ro:
         ```
         %{logs}
         ```
-    email_reject_trust_level:
-      text_body_template: |
-        Ne pare rău, dar emailul dvs către %{destination} (cu titlul %{former_title}) nu a funcționat.
-
-         Contul dvs nu are nivelul de încredere necesat pentru a poșta noi discuții pe această adresă de email. Dacă sunteți de părere că este o greșeală, contactați un membru din personal.
-    email_reject_no_account:
-      text_body_template: |
-        Ne pare rău, dar emailul trimis de dvs către %{destination} (cu titlul %{former_title}) nu a funcționat.
-
-        Nu există niciun cont corelat cu această adresă Email. Încercați să trimiteți de pe o altă adresa de email, sau contactați un membru al personalului.
-    email_reject_post_error:
-      text_body_template: |
-        Ne pare rău, dar emailul către %{destination} (cu titlul %{former_title}) nu a funcționat.
-
-        Cauzele posibile sunt: formatul complex, mesajul prea lung, mesajul prea scurt. Încercați din nou, sau postați prin website dacă problema persistă.
-    email_reject_post_error_specified:
-      text_body_template: |
-        Ne pare rău, dar emailul către %{destination} (cu titlul %{former_title}) nu a funcționat.
-
-        Respingerea mesajului:
-
-        %{post_error}
-
-        Încearcă să repari eroarea și încearcă din nou.
-    email_reject_reply_key:
-      text_body_template: |
-        Ne pare rău, dar emailul către %{destination} (cu titlul %{former_title}) nu a funcționat.
-
-        Cheia de răspuns este ori invalidă ori nefuncționabilă, deci nu știm la ce răspunde aces email. Contactați un membru al personalului.
-    email_error_notification:
-      text_body_template: |
-        S-a semnalat o eroare la sustragerea mailurilor din serverul  POP.
-
-        Asigurați-vă că ați setat serverul POP în [setările site-ului](%{base_url}/admin/setări_de_site/categorie/email).
-    too_many_spam_flags:
-      subject_template: "Cont nou blocat"
-      text_body_template: |
-        Salut,
-
-        Acesta e un mesaj automat din partea %{site_name} pentru a vă informa că postările dvs. au fos automat ascunse, fiindcă au fost marcate de către comunitate.
-
-        Ca măsură de precauție, noul dvs cont a fost blocat în a crea răspunsuri noi sau discuții până când un membru al personalului revizuiește contul dvs.
-
-        Pentru ajutor adițional, faceți referie la [regulile de comunitate](%{base_url}/).
-    blocked_by_staff:
-      subject_template: "Cont blocat"
-      text_body_template: |
-        Salut,
-
-        Acesta e un mesaj automat din partea %{site_name} pentru a vă informa de blocarea contului dvs de către un membru al personalului.
-
-        Pentru ajutor adițional, faceți referie la [regulile de comunitate](%{base_url})..
     user_automatically_blocked:
       subject_template: "Noul utilizator %{username} a fost blocat datorită marcajelor date de comunitate"
-      text_body_template: |
-        Acesta este un mesaj automat.
-
-        Noul utilizator [%{username}](%{base_url}%{user_url}) a fost automat blocat fiindcă mai mulți utilizatori au marcat postările lui %{username}.
-
-        Vă rugăm [revizuiți marcajele](%{base_url}/admin/flags). Dacă %{username} a fost incorect blocat în a posta, faceți click pe butonul de deblocare pe [pagina de admin a acestui utilizator](%{base_url}%{user_url}).
-
-        Acest prag poate fi schimbat prin setarea `block_new_user` a site-ului .
     spam_post_blocked:
       subject_template: "Utilizatorul nou %{username} are postările blocate datorită adreselor repetate"
-      text_body_template: |
-        Acesta este un mesaj automat.
-
-        Noul utilizator [%{username}](%{base_url}%{user_url}) a încercat să creeze postări multiple cu adrese către %{domains}, dar aceste postări au fost blocate pentru a evita spamul. Acest utilizator este capabil încă să creeze postări ce nu conțin adrese către %{domains}.
-
-        Vă rugăm [revizionati utilizatorul](%{base_url}%{user_url}).
-
-        Aceasta poate fi modificat prin setările `newuser_spam_host_threshold` și `white_listed_spam_host_domains` din site.
-    unblocked:
-      subject_template: "Cont deblocat"
-      text_body_template: |
-        Salut,
-
-        Acesta este un mesaj automat din partea %{site_name} pentru a vă informa cu privire la deblocarea contului dumneavoastră după o revizie a personalului.
-
-        Acum puteți crea discuții și răspunsuri noi.
     pending_users_reminder:
       text_body_template: |
         Exista înscrieri de noi utilizatori ce așteaptă să fie aprobate (sau respinse) înainte de a putea accesa forumul.
@@ -1063,71 +848,30 @@ ro:
     download_remote_images_disabled:
       subject_template: "Downloadul de imagini de legătura dezactivat"
       text_body_template: "Funcția `download_remote_images_to_local` a fost dezactivată pentru că limita de spațiu din `download_remote_images_threshold` a fost atinsă."
-  unsubscribe_link: "Pentru dezabonare de la aceste emailuri, vizitați pagina [preferințele utilizatorului](%{user_preferences_url})."
   subject_re: "Re: "
   subject_pm: "[PM] "
   user_notifications:
     previous_discussion: "Răspunsurile precedente"
     unsubscribe:
       title: "Dezabonare"
-      description: "Nu sunteți interesat în a primii aceste email-uri? Nicio problemă! Faceți clic dedesubt pentru a vă dezabona imediat:"
-    reply_by_email: "Pentru a răspunde, răspundeți la acest email sau vizitați %{base_url}%{url} în browser-ul dvs."
-    visit_link_to_respond: "Pentru a răspunde, vizitați %{base_url}%{url} în browserul dvs."
+      description: "Nu ești interesat în a primi aceste email-uri? Nicio problemă! Faceți click dedesubt pentru a vă dezabona imediat:"
     posted_by: "Postat de %{username} pe data %{post_date}"
     user_replied:
       subject_template: "[%{site_name}] %{topic_title}"
-      text_body_template: |
-        %{message}
-
-        %{context}
-
-        ---
-        %{respond_instructions}
     user_quoted:
       subject_template: "[%{site_name}] %{topic_title}"
-      text_body_template: |
-        %{message}
-
-        %{context}
-
-        ---
-        %{respond_instructions}
     user_mentioned:
       subject_template: "[%{site_name}] %{topic_title}"
-      text_body_template: |
-        %{message}
-
-        %{context}
-
-        ---
-        %{respond_instructions}
     user_posted:
       subject_template: "[%{site_name}] %{topic_title}"
-      text_body_template: |
-        %{message}
-
-        %{context}
-
-        ---
-        %{respond_instructions}
     user_posted_pm:
       subject_template: "[%{site_name}] [MP] %{topic_title}"
-      text_body_template: |
-        %{message}
-
-        %{context}
-
-        ---
-        %{respond_instructions}
     digest:
       why: "Un sumar scurt al %{site_link} de ultima oară când ați fost prezent %{last_seen_at}."
-      subject_template: "Rezumatul [%{site_name}]"
       new_activity: "Activități noi în discuțiile și postările dvs:"
       top_topics: "postări populare"
       other_new_topics: "Discuții populare"
-      unsubscribe: "Acest rezumat este trimis ca o notificare de curtoazie din partea %{site_link} când lipsiți o perioadă. Pentru dezabonare %{unsubscribe_link}."
       click_here: "click aici"
-      from: "rezumatul %{site_name}"
       read_more: "Citește mai mult"
       more_topics: "Au fost %{new_topics_since_seen} alte discuții noi de la ultima dvs. vizită pe %{last_seen_at}."
       more_topics_category: "Au fost %{new_topics_since_seen} alte discuții noi în aceste categorii de la utima dvs. vizită pe %{last_seen_at}:"
@@ -1151,16 +895,9 @@ ro:
         %{base_url}/users/password-reset/%{email_token}
     admin_login:
       subject_template: "[%{site_name}] Autentificare"
-    authorize_email:
-      subject_template: "[%{site_name}] Confirmă noua adresă de email"
-      text_body_template: |
-        Confirmă noua adresă de email pentru %{site_name} făcând click pe următoarea adresă:
-
-        %{base_url}/users/authorize-email/%{email_token}
     signup_after_approval:
       subject_template: "Ați fost aprobat pe site-ul %{site_name}!"
     signup:
-      subject_template: "[%{site_name}] Activați noul cont"
       text_body_template: |
         Bine ați venit la %{site_name}!
 
@@ -1169,7 +906,6 @@ ro:
 
         Dacă adresa de mai sus nu e accesibilă, încercați să o copiați și să o lipiți în bară de adrese a propriului browser.
   page_not_found:
-    title: "Pagina cerută nu există sau este privată."
     popular_topics: "Populare"
     recent_topics: "Recente"
     see_more: "Mai multe"
@@ -1189,12 +925,7 @@ ro:
     pasted_image_filename: "Lipire imagine"
     store_failure: "Încercare de încărcare eșuată #%{upload_id} pentru utilizatorul #%{user_id}."
     images:
-      fetch_failure: "Ne pare rău, s-a produs o eroare la încercarea de a recupera imaginea."
-      unknown_image_type: "Ne pare rău, dar fișierul pe care încercați să-l încărcați nu pare să fie o imagine."
       size_not_found: "Ne pare rău, nu am putut determina mărimea imaginii. Poate este coruptă?"
-  flag_reason:
-    sockpuppet: "Un utilizator nou a creat o discuție, iar un alt utilizator cu același IP a răspuns. Vedeți setarea flag_sockpuppets în site."
-    spam_hosts: "Acest utilizator a încercat să creeze postări multiple ce conțin adrese către același domeniu. Vedeți setarea newuser_spam_host_threshold în site."
   email_log:
     no_user: "Nu pot găsii utilizatorul cu id-ul %{user_id}"
     anonymous_user: "Utilizatorul este anonim"
@@ -1223,391 +954,15 @@ ro:
     Editează prima postare în această discuție pentru a schimba conținutul paginii %{page_name}.
   guidelines_topic:
     title: "FAQ/Informații de ajutor"
-    body: |
-      <a name="civilizat"></a>
-
-      ## [Acesta este un loc civilizat pentru discuții publice](#civilized)
-
-      Vă rugăm tratați aceast forum de discuții ca și un parc public. Și noi, suntem o resursă împărțită a comunității; un loc unde se împart abilități, cunoștințe și interes prin conversații continue.
-
-      Acestea nu sunt reguli grele ce nu pot fi urmate, sunt menite doar să ajute judecata umană a comunității noastre. Folosiți regulile pentru a-l menține că un loc curat, degajat menit pentru discursuri publice civilizate.
-
-      <a name="îmbunătățește"></a>
-
-      ## [Pentru a îmbunătății discuția](#îmbunătățește)
-
-      Ajutați-ne să facem aici un loc excelent pentru discuții ajutând mereu la îmbunătățirea discuțiilor în orice fel, cât de mic. Dacă nu sunteți sigur că postarea dvs se leagă la conversație, reformulați încă odată informația și încercați mai târziu.
-
-      Discuțiile avute aici contează pentru noi, vrem să acționați ca și când ar conta și pentru voi. Fiți respectuoși față de discuții și de persoanele ce le întrețin, chiar dacă nu sunteți de acord cu ceea ce e discutat.
-
-      Un mod de a inbunătății discuțiile ar fi acela de a descoperii pe cele deja existente. Vă rugăm petreceți ceva timp uitându-vă peste discuții înainte de a răspunde sau de a începe una proprie, așa veți avea șanse mai mari să cunoașteți persoane ce vă împărtășesc interesele.
-
-      <a name="de acord"></a>
-
-      ## [Fiți de acord, Chiar și când nu sunteți de acord](#deacord)
-
-      Poate aveți tendința să răspundeți la ceva prin afișarea dezacordului. E normal. Dar, Amintiți-vă să criticați idei nu persoane. Vă rugăm evitați:
-
-      *   Porecle.
-      *   Atacul la persoană.
-      *   Răspunsul la tonul unei postări în locul informației.
-      *   Contrazicerea defectuoasă.
-
-      Mai bine, Dați contra-argumente rezonabile ce pot îmbunătății conversația.
-
-      <a name="participare"></a>
-
-      ## [Participarea dvs. contează](#participare)
-
-      Conversația pe care o avem aici da tonul tuturor. Ajutați la influențarea viitorului aceste comunități prin angajarea în discuții ce fac forumul un loc interesant de vizitat &mdash; și evitațile pe cele ce nu sunt interesante.
-
-      Discourse oferă mijloace ce permit comunității să indentifice colectiv cele mai bune (și cele mai proaste) contribuții: favorite, semne de carte, aprecieri, marcaje, răspunsuri, editări, șamd. Folosiți aceste mijloace pentru a vă îmbunătății experienta dvs și a altora.
-
-      Să încercăm să lăsăm parcul în condiții mai bune decât l-am găsit.
-
-      <a name="probleme-marcaje"></a>
-
-      ## [Dacă observați o problemă, marcați-o](#marcati-probleme)
-
-      Moderatorii au o autoritate specială; Suntem responsabili de acest forum. dar și voi, de asemenea . cu ajutorul vostru, moderatorii pot fi facilitatorii comunității, nu doar oamenii de serviciu sau poliția.
-
-      Când observați o purtare necorespunzătoare, nu răspunde-ți. Asta încurajează și mai mult, vă consuma energia, și irosește timpul tuturor. _Doar marcați-o_. Dacă suficiente marcaje se adună, se vor lua măsuri, ori automat, ori prin intervenția unui moderator.
-
-      Pentru a menține comunitatea , moderatorii își rezerva dreptul de a scoate orice fel de conținut și orice cont de utilizator pentru orice motiv, oricând. Moderatorii nu previzualizează postările noi în niciun mod; Moderatorii și operatorii site-ului nu își asumă nicio responsabilitate pentru niciun conținut postat de comunitate.
-
-      <a name="fiti-civilizati"></a>
-
-      ## [Întotdeauna fiti-civilizati](#Fiti-civilizati)
-
-      Nimic nu sabotează o conversație plăcută ca nepolitețea:
-
-      *   Fiți civilizați. Nu postați nimic ce o persoană rezonabilă ar putea considera ofensiv, abuziv, sau cuvinte de ură.
-      *   Mențineți totul decent. Nu postați nimic obscen sau sexual explicit.
-      *   Respectați-vă reciproc. Nu hartuiți sau supărați pe nimeni, nu vă dați drept altcineva și nu expuneți informațiile lor private.
-      *   Respectați forumul nostru. Nu postați spam-uri și nu vandalizați în alte moduri forumul.
-
-      Aceștia nu sunt termeni stricți definiți &mdash; evitați până  și _aparenta_acestor lucruri. Dacă sunteți nesigur, întrebați-vă cum v-ați smtii dacă postarea dumneavoastră ar apărea pe prima pagină din New York Times.
-
-      Acesta este un forum public, și motoarele de căutare arată aceste discuții. Păstrați limbajul, adresele și imaginile în limite normale pentru a fi vizualizate și de prieteni sau familie.
-
-      <a name="mentineti-ordonat"></a>
-
-      ## [Mențineți ordonat](#mentineti-ordonat)
-
-      Faceți efortul de a pune lucrurile în locul corespunzător, ca să putem acorda cât mai mult timp discuțiilor și nu curățeniei. Astfel:
-
-      *   Nu deschideți o discuție în categoria greșită.
-      *   Nu postați același lucru în mai multe discuții.
-      *   Nu postați răspunsuri fără conținut.
-      *   Nu divagați discuția schimbându-i sensul.
-      *   Nu semnați postările &mdash; fiecare postare are informația profilului dvs atașat.
-
-      Decât să postați “+1” sau “De acord”, folosiți butonul pentru apreciere. Decât să duceți o discuție într-un alt sens ,folisti răspuns într-o nouă discuție.
-
-      <a name="furt"></a>
-
-      ## [Postați numai propriile informații](#furt)
-
-      Nu puteți posta nimic digital ce aparține altcuiva fără permisune. Nu puteți posta descrieri despre un astfel de conținut, adrese către, sau alte metode de furt a proprietății intelectuale ce aparține altcuiva (software, video, audio, imagini), sau să încălcați legea în orice alt mod.
-
-      <a name="tsc"></a>
-
-      ## [Termeni și condiții](#tsc)
-
-      Da, limbajul legal este plictisitor, dar trebuie să ne protejăm &ndash; și prin extensie, utilizatorii și datele lor &ndash; împotriva celor rău intenționați. Avem [Termenii și condițiile](/tsc) ce descriu purtarea corespunzătoarea a voastră (și a noastră) și drepturile legate de conținut, intimitate și legi. Pentru a folosii acest serviciu, trebuie să fiți de acord [TSC](/tsc).
   tos_topic:
     title: "Acordul de servicii"
-    body: |
-      Următorii termeni și condiții ce guvernează folosirea site-ului %{company_domain} și tot ce conține acesta, Produsele și serviciile disponibile prin site-ul web, inclusiv, dar nu limitat la forumul % {company_domain} ,suportul de forum % {company_domain} și serviciul de găzduire % {company_domain}. Website-ul este deținut și operat de % {company_full_name} ("% {company_name}"). Site-ul Web este oferit sub rezerva acceptării dumneavoastră fără modificarea tutor termenilor și condițiilor conținute în acest document și toate celelalte regulile de operare, politicile (inclusiv, fără limitare, % {company_domain} ' [Politica de Confidențialitate] ( /confidențialitate) și [Liniile directoare comunitare] ( /faq)) și procedurile care pot fi publicate din când în când pe acest Site de % {company_name}.
-
-      Vă rugăm citiți acest acord cu atenție înainte să începeți să folisiți website-ul. Accesând sau folosind orice parte a acestui site, sunteți de acord să vă supuneți termenilor și condițiilor cerute. Dacă nu sunteți de acord cu acestea, vă este interzis să folosiți acest website sau oricare dintre părțile lui. Acești termeni și condiții sunt considerați a fi o oferta din partea %{company_name}, acceptarea lor este express limitată în acești termeni. Acest website este dedicat celor ce au depășit vârsta de 13 ani.
-
-      <a name="1"></a>
-
-      ## [1. Primul dvs. cont %{company_domain} (#1)
-
-      Dacă creați un cont pe acest website, sunteți responsabil pentru securitatea acestuia precum și totate activitățile ce iau naștere din folosirea lui. Trebuie să notificați de îndată %{company_name} de orice pătrundere de securitate și folosință a contului dvs. %{company_name} nu va fi trasă la răspundere pentru niciun act de omisune din partea dvs, incluzând orice daună de orice fel rezultată în urma unui act de omisune.
-
-      <a name="2"></a>
-
-      ## [2. Responsibilitatea Contribuitorilor](#2)
-
-      Dacă postați materiale pe aces website, adrese, sau faceți disponibil dumneavoastră ( sau oricare altă parte terță), Veți fi responsabil deplin de aceste conținuturi și de orice rău rezultat din acestea. Acestea se aplică dacă contextul reprezintă text, elemente grafice, audio , sau software. Făcând contextul valabil, vă asumați răspunderea ca:
-
-      *   Descărcarea, copierea și utilizarea conținutului nu va încălca drepturile de proprietate, inclusiv, dar nu limitat la autor, patent, marcă comercială său secret comercial drepturi, a oricărei terțe părți;
-      *   Dacă angajatorul dvs are drepturi de proprietate intelectuală să creeze, sau ați primit permisiunea din partea angajatorului dvs.pentru a posta sau a pune la dispoziție conținut, inclusiv, dar nu limitat la orice software, sau sunteți asigurat de la angajatorul dvs că sunt respectate  toate drepturile conținutului;
-      *   Sunteți de acord cu orice parte terță licențiată legată de conținut, și ați respectat toate lucrurile ce vă permit să treceți cu succes la utilizatorul final respectând termenii necesari;
-      *   Conținutul nu conține și nu instalează viruși, worm-uri, malware, virus Troian sau orice alt content distructiv;
-      *   Conținutul nu este spam, sau robot- sau generat aleatoriu și nu conține conținut comerical non etic sau nedorit menit să atragă atenția asupra unui alt site sau să mărească eficacitatea site-ului respectiv pe motoarele de căutare, sau alte acte nedemne (ca înșelătoriile) sau recipiente înșelătoare vis-a-vis de sursa materialului;
-      *   Conținutul nu este pornografic, nu conține amenințări sau acte ce incita la violență, și nu încalca intimitatea sau drepturile publice unei terțe părți;
-      *   Conținutul dvs. nu este obținerea de publicitate prin mesaje electronice nedorite, cum ar fi link-uri de tip spam pe grupuri de știri, liste de email, bloguri și site-uri, sau alte metode promoționale;
-      *   Conținutul dvs. nu este numit într-un mod care induce în eroare cititorii dvs. de a crede că sunteți o altă persoană sau societate; și
-      *   Aveți, în cazul de conținut ce include cod de computer, clasificate corect și / sau ce descrie tipul, natura, utilizările și efectele materiale, dacă se solicită acest lucru de către %{company_name} sau altcineva.
-
-      <a name="3"></a>
-
-      ## [3.Conținutul utilizatorului de licență](#3)
-
-      Contribuții ale utilizatorului sunt licențiate sub o [Licența de atribuții creative, comune, non-comerciale de tip distributiv 3.0](http://creativecommons.org/licenses/by-nc-sa/3.0/deed.en_UȘ). Fără a limita oricare dintre aceste reprezentări sau garanții, %{company_name} are dreptul (dar nu și obligația), la discreția %{company_name} (i) să refuze sau să scoată orice conținut care, în opinia %{company_name}, încalcă orice politică a %{company_name} sau este în orice fel dăunătoare sau inacceptabilă, să rezilieze, sau refuze accesul la utilizarea site-ului de orice persoană sau entitate pentru orice motiv, la discreția %{company_name}. %{company_name} nu va avea nicio obligație să ofere răscumpărare de bani plătită anterior.
-
-
-      <a name="4"></a>
-
-      ## [4. Plata și reinoire](#4)
-
-      ### Termeni generali
-
-      Plățile opționale sau reactualizările sunt făcute valabile pe website. Când folosiți un serviciu opțional sau reactualizare contra-cost, sunteți de acord să plătiți ccompaniei %{company_name} suma anuală sau lunară indicată. Plată va fi luată printr-o metodă pre-pay din ziua în care începeți să utilizați serviciul său actualizarea și va asigura folosirea acesteia pe durata indicată. Aceste plăți nu sunt returnabile.
-
-      ### Înnoire automată
-
-      În cazul în care nu anunțați %{company_name} înainte de terminarea perioadei de abonare că doriți să opriți folosirea serviciului sau actualizării, abonamentul va fi reinoit automat și ne autorizează să colectăm suma aferentă (asemenea oricărei taxe) folosind orice mijloc de taxare despre care avem cunoștința din partea dvs. Abonamentul poate fi anulat oricând.
-
-      <a name="5"></a>
-
-      ## [5. Servicii](#5)
-
-      ### Găzduire, Servicii de suport
-
-      Găzduirea opțională și serviciile de suport oferite de %{company_name} sub termenii și condițiile pentru asemenea servicii. Prin înscrierea la servicii de Găzduire/Suport sau cont de serviciu de Suport, sunteți de acord să vă supuneți termenilor și condițiilor.
-
-      <a name="6"></a>
-
-      ## [6. Responsabilitățile utilizatorilor de pe site](#6)
-
-      %{company_name} nu a vizionat, și nu poate viziona, toate materialele, incluzând programe, postări pe website, deci nu este responsabilă pentru aceste conținuturi, folosințe sau efecte. Folosind website-ul, %{company_name} nu reprezintă sau promovează materialul postat, nu e de părere că materialul este corect, folositor sau dăunător. Sunteți responsabil pentru a lua măsuri de precauție după cum este necesar pentru dvs. și sistemul pc în protejarea de viruși, viermi, cai troieni, și alte tipuri de conținut dăunător sau distructiv. Site-ul poate conține conținut care este ofensator, indecent, sau în caz contrar criticabil, precum și conținut care implică inexactități tehnice, greșeli ortografice, sau alte erori. Site-ul poate conține, de asemenea, materiale care încalcă drepturile de confidențialitate sau publicitate, sau încalcă proprietatea intelectuală și alte drepturi de proprietate intelectuală, ale unor terțe părți, sau de descărcarea, copierea sau utilizarea care este supusă termenilor și condițiilor suplimentare. % {Company_name} își declină orice responsabilitate pentru orice daună care rezultă din utilizarea de către vizitatori a Site-ului Web, sau de la orice descărcarea de către vizitatori a conținutului afișat.
-
-      <a name="7"></a>
-
-      ## [7. Conținutul Postat pe alte Website-uri](#7)
-
-      Nu am revizuit, și nu putem analiza, toate materialele, inclusiv programele de calculator, puse la dispoziție prin site-uri web și pagini web pentru care %{company_domain} afișează adrese, acele adrese către %{company_domain}. %{company_name} nu are control asupra celor ce %{company_domain} nu le dinte și nu este responsabilă pentru conținutul lor. Postând adresa către un non-%{company_domain} website, %{company_name} nu reprezintă sau promovează aceast website. Este necesar ca dumneavoastră să luați măsurile necesare împotriva atacurilor software de genul virușilor, viermilor, virușilor troian și restului de conținut distructiv. %{company_name} refuza orice responsabilitate în folosință dvs a oricăror non-%{company_domain} website-uri.
-
-      <a name="8"></a>
-
-      ## [8. Încălcarea de Copyright și politica DMCA](#8)
-
-      Cum % {company_name} cere altora să-și respecte drepturile de proprietate intelectuală, ea respectă drepturile de proprietate intelectuală ale altora. Dacă sunteți de părere că materialul postat pe %{company_domain} încalcă dreptul dvs de proprietate, iar acest website e pe teritoriul USA , sunteți încurajați să anunțați %{company_name} în conformitate cu actul %{company_name} [Digital Millennium Copyright Act](http://en.wikipedia.org/wiki/Digital_Millennium_Copyright_Act) Politica ("DMCA"). %{company_name} va răspunde acestor notificări, inclusiv cum este necesar sau adecvat prin scoaterea materialului ilicit și dezactivarea toaturor link-urilor. %{company_name} va încheia accesul utilizatorului la website, dacă ,în repetate rânduri, utilizatorul e determinat să încalce aceste drepturi de copyright sau alte proprietăți intelectuale ale %{company_name}. În cazul unei asemenea excluderi, %{company_name} nu va avea obligația de a oferii remunerația financiară plătită precedent către %{company_name}.
-
-      <a name="9"></a>
-
-      ## [9. Proprietatea intelectuală](#9)
-
-      Acest acord nu este transferabil de la %{company_name} către orice altă %{company_name} sau părți terțe în ceea ce privește proprietatea intelecutala, cu taotae drepturile, titlurile și interesele acest tip de proprietate v-a rămâne sub proprietatea %{company_name}. %{company_name}, %{company_domain}, Logo-ul %{company_domain} și toate trademark-urile, logo-urile grafice folosite în legătură cu %{company_domain}, sau a Website-ului sunt trademark-uri sau mărci înregistrate %{company_name} sau a licenței %{company_name}. Celelalte mărci comerciale, mărci de servicii, grafică și siglele folosite în legătură cu site-ul pot fi mărci comerciale ale altor terțe părți. Folosirea Website-ului de către dvs nu dă dreptul reproducerii sau folosirii oricărei mărci înregistrate ale %{company_name} sau a altei terțe părți.
-
-      <a name="10"></a>
-
-      ## [10. Reclamele](#10)
-
-      %{company_name} își rezerva dreptul de a posta reclame cu conținutul dvs ,exceptând cazul în care ați cumpărat actualizare fara-anunțuri sau a unui cont de servicii.
-
-      <a name="11"></a>
-
-      ## [11. contribuții](#11)
-
-      %{company_name} își rezervă dreptul de a posta contribuții ca ‘prin intermediul %{company_domain},’ și atribute de font în subsol sau panoul de unelte. Informațiile din subsol și panoul de unelte %{company_domain} nu pot fi scoase indiferent de ce reactualizare beneficiați.
-
-      <a name="12"></a>
-
-      ## [12. Schimbări](#12)
-
-      %{company_name} își rezervă dreptul la propria discreție , să modifice oricare parte din acest acord. Este responsabilitatea dvs. să verificați acest acord periodic pentru schimbări.Accesarea website-ului după ce aceste modificări au fost făcute constituie acceptarea dvs. implicită a acestora. %{company_name} ar putea, pe viitor, să ofere noi servicii sau caracteristici (incluzând, lansarea unor noi unelte și resurse). și aceste servicii noi se vor supune aceluiași acord.
-
-      <a name="13"></a>
-
-      ## [13. Termination](#13)
-
-      %{company_name}poate termina accesul dvs. parțial sau total la website oricând, fără nicio cauză, fără nicio avertizare, efectiv imediat. Dacă doriți să anulați acest acord sau contul dvs. de pe %{company_domain}, puteți să vă oprii în a foslosii siteul.Toate dispozițiile prezentului acord care, prin natura lor, ar trebui să supraviețuiască reziliere vor supraviețui încetării, inclusiv, fără limitare, dispoziții de proprietate, condiții legale de garanție, indemnizație și limitările de răspundere.
-
-      <a name="14"></a>
-
-      ## [14. Garanția de Disclaimer](#14)
-
-      Site-ul este furnizat "ca atare". %{company_name}, furnizorii și deținătorii de licențe se exonerează de orice garanție, explicită sau implicită, incluzând, fără limitare, garanțiile de vandabilitate, adecvate pentru un anumit scop și non-încălcabile. Nici %{company_name} nici furnizorii și licențiatorii săi,nu fac orice garanție că site-ul va fi fără erori sau că acesta va fi procesat continuu sau neîntrerupt. Dacă chiar citiți asta, aici este [un tratat](http://www.newyorker.com/online/blogs/shouts/2012/12/the-hundred-best-lists-of-all-time.html). Înțelegeți că descarcați de la, sau altfel spups obțineți informații prin intermediul Website-ului pe proriile riscuri.
-
-      <a name="15"></a>
-
-      ## [15. Limitare de răspundere](#15)
-
-      În nici un caz %{company_name}, furnizori sau licențiatorii săi nu vor răspunde cu privire la orice subiect a acestui acord sub​orice contract, neglijență, răspundere strictă sau altă teorie juridică sau echitabil pentru: (i) orice speciale, accidentale sau daunele indirecte; (ii) costul de achiziție pentru produse sau servicii de substituție; (iii) pentru întrerupere de utilizare sau pierderea sau coruperea datelor; sau (iv) pentru orice sume care depășesc taxele plătite de tine către  %{company_name} în temeiul prezentului acord pe parcursul perioadei de douăsprezece (12) luni înainte de cauză de acțiune. %{company_name} nu va avea nici o responsabilitate pentru orice eșec sau întârziere din cauza problemelor de dincolo de controlul lor rezonabil. Cele de mai sus nu se vor aplica în măsura în care este interzis de legislația în vigoare..
-
-      <a name="16"></a>
-
-      ## [16. Reprezentarea generală și garanție](#16)
-
-      Declarați și garantați că (i) utilizarea de către dvs. a site-ului va fi în strictă conformitate cu %{company_name} [Politica de confidențialitate](/intimitate), [Regulile comune](/reguli-comune), cu prezentul acord și cu toate legile și reglementările aplicabile (inclusiv, dar fără a se limita la orice lege sau reglementare locale din țară, stat, oraș, sau alt domeniu guvernamental, în ceea ce privește comportamentul on-line și conținut acceptabil, inclusiv toate legile aplicabile privind transmiterea de date tehnice exportate din țara în care locuiește acest site sau țara în care locuiți) și (îi) utilizarea de către dvs. a site-ului nu va încălca sau deturna drepturile de proprietate intelectuală ale unei terțe părți.
-
-      <a name="17"></a>
-
-      ## [17. Despăgubiri](#17)
-
-      Sunteți de acord să despăgubiți %{company_name}, subcontractorii săi și licențiatorii săi, precum și directorii respectivi, ofițerii, angajații de agenții, împotriva oricăror și tuturor creanțelor și cheltuielilor, incluzând onorariile avocaților, ce rezultă din utilizarea de către dvs. a site-ului, inclusiv, dar fără a se limita la încălcarea de către dvs. a acestui acord.
-
-      <a name="18"></a>
-
-      ## [18. Diverse](#18)
-
-      Prezentul acord constituie întregul acord între %{company_name} și tu cu privire la obiectul acestuia, și ele pot fi modificate doar de către un amendament scris, semnat de un executiv autorizat de %{company_name}, sau prin detașarea cu %{company_name} de o versiune revizuită. Cu excepția legii măsură aplicabilă, dacă este cazul, nu prevede altfel, prezentul acord, orice acces la sau utilizare a site-ului vor fi guvernate de legile statului California, Statele Unite ale Americii, cu excepția conflictelor cu prevederile legii, iar locul potrivit pentru orice litigii care decurg din sau în legătură cu oricare dintre acestea va fi instanța de stat și federală situate în San Francisco, California. Cu excepția cererilor de ordonanță prezidențială sau echitabila sau revendicării legate de drepturile de proprietate intelectuală (care pot fi introduse în orice instanță competentă, fără detașarea unei obligațiuni), orice litigiu care rezultă în temeiul prezentului acord se soluționează în cele din urmă, în conformitate cu Regulile de arbitraj cuprinzătoare ale Arbitraj judiciară și serviciu de mediere, Inc ("blocajelor") de către trei arbitri numiți în conformitate cu aceste reguli. Arbitrajul va avea loc în San Francisco, California, în limba engleză, iar decizia arbitrală poate fi aplicată în orice tribunal.Partea care prevalează în orice acțiune sau procedură de aplicare a prezentului acord are dreptul la costurile și onorariile avocaților. Dacă orice parte a acestui acord este ținut invalid sau inaplicabilă, acea parte va fi interpretată pentru a reflecta intenția inițială a părților, iar porțiunile rămase vor rămâne în vigoare și cu efecte depline. O renunțare de către oricare dintre părți a oricărui termen sau condiție a prezentului acord sau orice încălcare a acestora, în orice caz, nu se va renunța la astfel de termen sau condiție sau orice încălcare ulterioară a acestora. Puteți atribui drepturile dumneavoastră în temeiul prezentului acord pentru orice partid care consimte la, și este de acord să fie legat de, termenii și condițiile sale;  %{company_name} poate cesiona drepturile sale în temeiul prezentului acord, fără condiție. Prezentul acord va fi obligatorie și va intra în vigoare în beneficiul părților, succesorilor lor și împuterniciții permise.
-
-      Acest document este CC-BY-SA. Acesta a fost actualizat ultima dată 31 mai 2013.
-
-      Inițial, adaptat de la [Termenii serviciului WordPress](http://en.wordpress.com/tos/).
   privacy_topic:
     title: "Politica de confidențialitate"
-    body: |
-      <a name="collect"></a>
-
-      ## [Ce informații colectăm?](#colectăm)
-
-      Colectăm informații de la dvs. când vă înregistrati pe site-ul nostru și colectăm date când participați la forum citind, scriind, și evaluând conținutul distribuit aici.
-
-      Când va înregistrați pe site, vi se va cere numele și adresa e email. Puteți, totuși să vizitați site-ul fără a fi înregistrat. Emailul va fi verificat de un email ce conține o adresă unică. Dacă acea adresa e vizitată, știm că sunteți în controlul adresei de email respective.
-
-      Când postați și sunteți autentificat, îregistrăm adresa IP a originii postării. Tot odată păstrăm și rapoarte de server ce includ adrese IP a orcăror cerințe de pe server.
-
-      <a name="uz"></a>
-
-      ## [La ce folosim informația?](#uz)
-
-      Orice informație obținută de la dumneavoastră poate fi folosită în următoarele moduri:
-
-      *   Să personalizăm experienta dvs. &mdash; informația data de dvs. ne ajută să răspundem cerințelor dvs. individuale.
-      *   Să îmbunătățim site-ul &mdash; încercat continuu să îmbunătățim site-ul pe baza informației și feed-back-ului oferit de dvs.
-      *   Să îmbunătățim serviciul de clienți &mdash; informația dvs ne ajută să răspundem eficient în oferirea suportului necesar.
-      *   Să trimitem periodic email-uri &mdash; Adresa de email data de dvs. poate fi flosita pentru a vă trimite informații,notificări cerute despre schimbări de discuție direct către numele de utiliztor, pentru a răspunde la întrebări, sau alte rugăminți și întrebări.
-
-      <a name="protecție"></a>
-
-      ## [Cum protejăm informațiile?](#protecție)
-
-      Am implementat o varietate de măsuri de protecție pentru a menține siguranța informațiilor personale când le introduceți, sau accesați.
-
-      <a name="retentie-date"></a>
-
-      ## [Care este politica de retenție de date?](#retentie-date)
-
-      Vom face un efort de bună credință să:
-
-      *   Păstrăm jurnalele de server care conțin adresa IP a tuturor cererilor de acest pe server nu mai mult de 90 zile.
-      *   Păstrăm adresele IP asociate cu utilizatorii înregistrați și posturile lor, nu mai mult de 5 ani.
-
-      <a name="cookie-uri"></a>
-
-      ## [Folosim cookie-uri?](#cookie-uri)
-
-      Da. Cookie-urile sunt mici fișiere trimise de site sau provider către hardul dvs. prin intermediul browser-ului de net (dacă este permis). Aceste cookie-uri permite site-ului să recunoască borwserul dvs., iar dacă aveți un cont, sa îl asocieze cu acesta.
-
-      Folosim cookie-urile pentru a înțelege și a salva preferințele dvs. pe viitor și pentru a compila date despre traficul site-ului pentru a oferii o mai bună experiența pe site în viitor. Este posibil să contractăm o parte-terta ce oferă servicii pentru a înțelege mai bine vizitatorii site-ulu. Acestor provideri de servicii nu le este permis să folosească informațiile colectate în contul nostru cu excepția ajutorului oferit nouă pentru a îmbunătății experiență.
-
-      <a name="disclose"></a>
-
-      ## [Dezvăluim informații partilor-terțe?](#Dezvăluire)
-
-      Nu vindem , schimbăm, sau transferăm oricărei alte terțe-părți informații identificabile ce aparțin utilizatorilor. Aici nu se includ terțe-părți de încredere ce oferă asistentă în funcționarea site-ului nostru, buna funcționare a afacerilor , sau serviciile dedicate dvs., atât timp cât acele terțe-părți și-au asumat responsabilitatea de a menține acele informații confidențiale. Am putea oferii informații doar în cazul în care această acțiune este în limitele legale, în limitele politicii noastre, sau pentru a proteja alte drepturi ce ne aparțin, proprietăți, sau siguranțe. Totuși, informații non-personale identificabile despre vizitatori vor fi oferite părților terțe în scopuri de marketing, reclame, sau alte scopuri.
-
-      <a name="third-party"></a>
-
-      ## [Adresele părților-terțe](#părți-terțe)
-
-      Occazional, la discreția noastră, vom include sau oferii părților-terțe produse sau servicii pe site-ul nostru. Aceste site-uri ale partilor-terțe au politici de organizare separate și independente. Deci nu ne asumăm responsabilitatea sau vina pentru contextul și activitățile acestor site-uri. În orice caz, intenția noastră este de a proteja integritatea site-ului nostru și orice feed-back despre acestea este bine venit.
-
-      <a name="coppa"></a>
-
-      ## [Actul de protecție online pentru copii](#coppa)
-
-      Site-ul nostru, produsele și serviciile sunt menite să fie folosite de persoanele ce au depășit vârsta de 13 ani. Dacă serverul nu se află în USA, iar dvs. aveți vârstă sub 13 ani, conform actului COPPA ([Actul de protecție online pentru copii](http://en.wikipedia.org/wiki/Children)), nu folosiți serviciile acestui site.
-      <a name="online"></a>
-
-      ## [Politica de confidențialitate online](#online)
-
-      Această politică de confidențialitate se aplică doar informațiilor colectate prin intermediul site-ului și nu offline.
-
-      <a name="Consimțământ"></a>
-
-      ## [Consimțământul dvs.](#Consimțământ)
-
-      Folosind site-ul nosrtu, vă dați consimțământul în ceea ce privește politica de confidențialitate a site-ului.
-
-      <a name="schimbări"></a>
-
-      ## [Schimbări în politica de confidențialitate](#schimbări)
-
-      Dacă decidem să schimbăm politica de confidențialitate, schimbările vor fi postate pe această pagină.
-
-      Acest document este CC-BY-SA. A fost ultima oară actualizat la 31 mai 2013.
-  badges:
-    long_descriptions:
-      autobiographer: |
-        Blah blah blah
-        Blah blah blah
-      first_like: |
-        Blah blah blah
-        Blah blah blah
-      first_link: |
-        Blah blah blah
-        Blah blah blah
-      first_quote: |
-        Blah blah blah
-        Blah blah blah
-      first_share: |
-        Blah blah blah
-        Blah blah blah
-      read_guidelines: |
-        Blah blah blah
-        Blah blah blah
-      reader: |
-        Blah blah blah
-        Blah blah blah
-      editor: |
-        Blah blah blah
-        Blah blah blah
-      nice_share: |
-        Blah blah blah
-        Blah blah blah
-      welcome: |
-        Blah blah blah
-        Blah blah blah
-      anniversary: |
-        Blah blah blah
-        Blah blah blah
-      good_share: |
-        Blah blah blah
-        Blah blah blah
-      great_share: |
-        Blah blah blah
-        Blah blah blah
-      nice_post: |
-        Blah blah blah
-        Blah blah blah
-      nice_topic: |
-        Blah blah blah
-        Blah blah blah
-      good_post: |
-        Blah blah blah
-        Blah blah blah
-      good_topic: |
-        Blah blah blah
-        Blah blah blah
-      great_post: |
-        Blah blah blah
-        Blah blah blah
-      great_topic: |
-        Blah blah blah
-        Blah blah blah
-      basic: |
-        Blah blah blah
-        Blah blah blah
-      member: |
-        Blah blah blah
-        Blah blah blah
-      regular: |
-        Blah blah blah
-        Blah blah blah
-      leader: |
-        Blah blah blah
-        Blah blah blah
   admin_login:
     success: "Mesajul a fost trimis"
     error: "Eroare!"
     email_input: "Email Admin"
     submit_button: "Trimite Email"
+  activemodel:
+    errors:
+      <<: *errors

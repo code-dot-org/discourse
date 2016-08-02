@@ -1,26 +1,82 @@
 require "digest/sha1"
 
 ################################################################################
+#                                    gather                                    #
+################################################################################
+
+task "uploads:gather" => :environment do
+  require "db_helper"
+
+  ENV["RAILS_DB"] ? gather_uploads : gather_uploads_for_all_sites
+end
+
+def gather_uploads_for_all_sites
+  RailsMultisite::ConnectionManagement.each_connection { gather_uploads }
+end
+
+def file_exists?(path)
+  File.exists?(path) && File.size(path) > 0
+rescue
+  false
+end
+
+def gather_uploads
+  public_directory = "#{Rails.root}/public"
+  current_db = RailsMultisite::ConnectionManagement.current_db
+
+  puts "", "Gathering uploads for '#{current_db}'...", ""
+
+  Upload.where("url ~ '^\/uploads\/'")
+        .where("url !~ '^\/uploads\/#{current_db}'")
+        .find_each do |upload|
+    begin
+      old_db = upload.url[/^\/uploads\/([^\/]+)\//, 1]
+      from = upload.url.dup
+      to = upload.url.sub("/uploads/#{old_db}/", "/uploads/#{current_db}/")
+      source = "#{public_directory}#{from}"
+      destination = "#{public_directory}#{to}"
+
+      # create destination directory & copy file unless it already exists
+      unless file_exists?(destination)
+        `mkdir -p '#{File.dirname(destination)}'`
+        `cp --link '#{source}' '#{destination}'`
+      end
+
+      # ensure file has been succesfuly copied over
+      raise unless file_exists?(destination)
+
+      # remap links in db
+      DbHelper.remap(from, to)
+    rescue
+      putc "!"
+    else
+      putc "."
+    end
+  end
+
+  puts "", "Done!"
+
+end
+
+################################################################################
 #                                backfill_shas                                 #
 ################################################################################
 
 task "uploads:backfill_shas" => :environment do
   RailsMultisite::ConnectionManagement.each_connection do |db|
-    puts "Backfilling #{db}"
-    Upload.select([:id, :sha, :url]).find_each do |u|
-      if u.sha.nil?
+    puts "Backfilling #{db}..."
+    Upload.where(sha1: nil).find_each do |u|
+      begin
+        path = Discourse.store.path_for(u)
+        u.sha1 = Digest::SHA1.file(path).hexdigest
+        u.save!
         putc "."
-        path = "#{Rails.root}/public/#{u.url}"
-        sha = Digest::SHA1.file(path).hexdigest
-        begin
-          Upload.update_all ["sha = ?", sha], ["id = ?", u.id]
-        rescue ActiveRecord::RecordNotUnique
-          # not a big deal if we've got a few duplicates
-        end
+      rescue Errno::ENOENT
+        putc "X"
       end
     end
   end
-  puts "done"
+  puts "", "Done"
 end
 
 ################################################################################
@@ -28,67 +84,85 @@ end
 ################################################################################
 
 task "uploads:migrate_from_s3" => :environment do
-  require "file_store/local_store"
-  require "file_helper"
+  require "db_helper"
 
-  max_file_size_kb = [SiteSetting.max_image_size_kb, SiteSetting.max_attachment_size_kb].max.kilobytes
-  local_store = FileStore::LocalStore.new
+  ENV["RAILS_DB"] ? migrate_from_s3 : migrate_all_from_s3
+end
 
-  puts "Deleting all optimized images..."
-  puts
-
-  OptimizedImage.destroy_all
-
-  puts "Migrating uploads from S3 to local storage"
-  puts
-
-  Upload.find_each do |upload|
-
-    # remove invalid uploads
-    if upload.url.blank?
-      upload.destroy!
-      next
+def guess_filename(url, raw)
+  begin
+    uri = URI.parse("http:#{url}")
+    f = uri.open("rb", read_timeout: 5, redirect: true, allow_redirections: :all)
+    filename = if f.meta && f.meta["content-disposition"]
+      f.meta["content-disposition"][/filename="([^"]+)"/, 1].presence
     end
+    filename ||= raw[/<a class="attachment" href="(?:https?:)?#{Regexp.escape(url)}">([^<]+)<\/a>/, 1].presence
+    filename ||= File.basename(url)
+    filename
+  rescue
+      nil
+  ensure
+    f.try(:close!) rescue nil
+  end
+end
 
-    # no need to download an upload twice
-    if local_store.has_been_uploaded?(upload.url)
-      putc "."
-      next
-    end
+def migrate_all_from_s3
+  RailsMultisite::ConnectionManagement.each_connection { migrate_from_s3 }
+end
 
-    # try to download the upload
-    begin
-      # keep track of the previous url
-      previous_url = upload.url
-      # fix the name of pasted images
-      upload.original_filename = "blob.png" if upload.original_filename == "blob"
-      # download the file (in a temp file)
-      temp_file = FileHelper.download("http:" + previous_url, max_file_size_kb, "from_s3")
-      # store the file locally
-      upload.url = local_store.store_upload(temp_file, upload)
-      # save the new url
-      if upload.save
-        # update & rebake the posts (if any)
-        Post.where("raw ILIKE ?", "%#{previous_url}%").find_each do |post|
-          post.raw = post.raw.gsub(previous_url, upload.url)
-          post.save
-        end
+def migrate_from_s3
+  require "file_store/s3_store"
 
-        putc "#"
-      else
-        putc "X"
-      end
-
-      # close the temp_file
-      temp_file.close! if temp_file.respond_to? :close!
-    rescue
-      putc "X"
-    end
-
+  # make sure S3 is disabled
+  if SiteSetting.enable_s3_uploads
+    puts "You must disable S3 uploads before running that task."
+    return
   end
 
-  puts
+  # make sure S3 bucket is set
+  if SiteSetting.s3_upload_bucket.blank?
+    puts "The S3 upload bucket must be set before running that task."
+    return
+  end
 
+  db = RailsMultisite::ConnectionManagement.current_db
+
+  puts "Migrating uploads from S3 to local storage for '#{db}'..."
+
+  s3_base_url = FileStore::S3Store.new.absolute_base_url
+  max_file_size_kb = [SiteSetting.max_image_size_kb, SiteSetting.max_attachment_size_kb].max.kilobytes
+
+  Post.unscoped.find_each do |post|
+    if post.raw[s3_base_url]
+      post.raw.scan(/(#{Regexp.escape(s3_base_url)}\/(\d+)(\h{40})\.\w+)/).each do |url, id, sha|
+        begin
+          puts "POST ID: #{post.id}"
+          puts "UPLOAD ID: #{id}"
+          puts "UPLOAD SHA: #{sha}"
+          puts "UPLOAD URL: #{url}"
+          if filename = guess_filename(url, post.raw)
+            puts "FILENAME: #{filename}"
+            file = FileHelper.download("http:#{url}", 20.megabytes, "from_s3", true)
+            if upload = Upload.create_for(post.user_id || -1, file, filename, File.size(file))
+              post.raw = post.raw.gsub(/(https?:)?#{Regexp.escape(url)}/, upload.url)
+              post.save
+              post.rebake!
+              puts "OK :)"
+            else
+              puts "KO :("
+            end
+            puts post.full_url, ""
+          else
+            puts "NO FILENAME :("
+          end
+        rescue => e
+          puts "EXCEPTION: #{e.message}"
+        end
+      end
+    end
+  end
+
+  puts "Done!"
 end
 
 ################################################################################
@@ -98,6 +172,7 @@ end
 task "uploads:migrate_to_s3" => :environment do
   require "file_store/s3_store"
   require "file_store/local_store"
+  require "db_helper"
 
   ENV["RAILS_DB"] ? migrate_to_s3 : migrate_to_s3_all_sites
 end
@@ -135,7 +210,7 @@ def migrate_to_s3
     # retrieve the path to the local file
     path = local.path_for(upload)
     # make sure the file exists locally
-    if !File.exists?(path)
+    if !path or !File.exists?(path)
       putc "X"
       next
     end
@@ -152,7 +227,7 @@ def migrate_to_s3
     end
 
     # remap the URL
-    remap(from, to)
+    DbHelper.remap(from, to)
 
     putc "."
   end
@@ -365,143 +440,15 @@ def regenerate_missing_optimized
 end
 
 ################################################################################
-#                           migrate_to_new_pattern                             #
+#                             migrate_to_new_scheme                            #
 ################################################################################
 
-task "uploads:migrate_to_new_pattern" => :environment do
-  ENV["RAILS_DB"] ? migrate_to_new_pattern : migrate_to_new_pattern_all_sites
+task "uploads:start_migration" => :environment do
+  SiteSetting.migrate_to_new_scheme = true
+  puts "Migration started!"
 end
 
-def migrate_to_new_pattern_all_sites
-  RailsMultisite::ConnectionManagement.each_connection { migrate_to_new_pattern }
-end
-
-def migrate_to_new_pattern
-  db = RailsMultisite::ConnectionManagement.current_db
-
-  puts "Migrating uploads to new pattern for '#{db}'..."
-  migrate_uploads_to_new_pattern
-
-  puts "Migrating optimized images to new pattern for '#{db}'..."
-  migrate_optimized_images_to_new_pattern
-
-  puts "Done!"
-end
-
-def migrate_uploads_to_new_pattern
-  if Upload.where(sha1: nil).exists?
-    puts "Computing missing SHAs..."
-
-    Upload.where(sha1: nil).find_each do |upload|
-      path = Discourse.store.path_for(upload)
-      size = File.size(path) rescue 0
-      if size > 0
-        upload.sha1 = Digest::SHA1.file(path).hexdigest
-        upload.save
-        putc "."
-      else
-        upload.destroy
-        putc "X"
-      end
-    end
-
-    puts
-  end
-
-  puts "Moving uploads to new location..."
-  Upload.where.not(sha1: nil)
-        .where("url LIKE '/uploads/%'")
-        .where("url NOT LIKE '/uploads/%/original/%'")
-        .find_each do |upload|
-    path = Discourse.store.path_for(upload)
-    if File.exists?(path)
-      file = File.open(path)
-      # copy file to new location
-      url = Discourse.store.store_upload(file, upload)
-      file.try(:close!) rescue nil
-      # remap URLs
-      remap(upload.url, url)
-      # remove old file
-      FileUtils.rm(path, force: true) rescue nil
-      putc "."
-    else
-      # upload.destroy
-      putc "X"
-    end
-  end
-
-  puts
-end
-
-def migrate_optimized_images_to_new_pattern
-  if OptimizedImage.where(sha1: nil).exists?
-    puts "Computing missing SHAs..."
-
-    OptimizedImage.where(sha1: nil).find_each do |optimized_image|
-      path = Discourse.store.path_for(optimized_image)
-      size = File.size(path) rescue 0
-      if size > 0
-        optimized_image.sha1 = Digest::SHA1.file(path).hexdigest
-        optimized_image.save
-        putc "."
-      else
-        optimized_image.destroy
-        putc "X"
-      end
-    end
-
-    puts
-  end
-
-  puts "Moving optimized images to new location..."
-  OptimizedImage.where.not(sha1: nil)
-                .where("width > 0 AND height > 0")
-                .where("url LIKE '/uploads/%/_optimized/%'")
-                .where("url NOT LIKE '/uploads/%/optimized/%'")
-                .find_each do |optimized_image|
-    path = Discourse.store.path_for(optimized_image)
-    if File.exists?(path)
-      file = File.open(path)
-      # copy file to new location
-      url = Discourse.store.store_optimized_image(file, optimized_image)
-      file.try(:close!) rescue nil
-      # remap URLs
-      remap(optimized_image.url, url)
-      # remove old file
-      FileUtils.rm(path, force: true) rescue nil
-      putc "."
-    else
-      optimized_image.destroy
-      putc "X"
-    end
-  end
-
-  puts
-end
-
-REMAP_SQL ||= "
-  SELECT table_name, column_name
-    FROM information_schema.columns
-   WHERE table_schema = 'public'
-     AND is_updatable = 'YES'
-     AND (data_type LIKE 'char%' OR data_type LIKE 'text%')
-ORDER BY table_name, column_name
-"
-
-def remap(from, to)
-  connection ||= ActiveRecord::Base.connection.raw_connection
-  remappable_columns ||= connection.async_exec(REMAP_SQL).to_a
-
-  remappable_columns.each do |rc|
-    table_name = rc["table_name"]
-    column_name = rc["column_name"]
-    begin
-      connection.async_exec("
-        UPDATE #{table_name}
-           SET #{column_name} = REPLACE(#{column_name}, $1, $2)
-         WHERE #{column_name} IS NOT NULL
-           AND #{column_name} <> REPLACE(#{column_name}, $1, $2)", [from, to])
-    rescue
-    end
-  end
+task "uploads:stop_migration" => :environment do
+  SiteSetting.migrate_to_new_scheme = false
+  puts "Migration stoped!"
 end

@@ -65,20 +65,19 @@
       color: $primary;
     }
   }
-  .active > a,
+  .active > a, & li > a.active
   {
     color: $secondary;
     background-color: $quaternary;
   }
 
-  .active > a::after,
+  .active > a::after, & li > a.active::after
   {
     left: 90%;
     top: 33%;
-    border: solid transparent;
     content: " ";
     position: absolute;
-    border-width: 8px;
+    border: 8px solid transparent;
     border-left-color: $secondary;
   }
 

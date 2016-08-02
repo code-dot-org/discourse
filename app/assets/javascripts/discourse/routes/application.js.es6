@@ -1,10 +1,16 @@
+import { ajax } from 'discourse/lib/ajax';
+import { setting } from 'discourse/lib/computed';
+import logout from 'discourse/lib/logout';
 import showModal from 'discourse/lib/show-modal';
 import OpenComposer from "discourse/mixins/open-composer";
+import Category from 'discourse/models/category';
+import mobile from 'discourse/lib/mobile';
+import { findAll } from 'discourse/models/login-method';
 
-function unlessReadOnly(method) {
+function unlessReadOnly(method, message) {
   return function() {
     if (this.site.get("isReadOnly")) {
-      bootbox.alert(I18n.t("read_only_mode.login_disabled"));
+      bootbox.alert(message);
     } else {
       this[method]();
     }
@@ -12,10 +18,34 @@ function unlessReadOnly(method) {
 }
 
 const ApplicationRoute = Discourse.Route.extend(OpenComposer, {
+  siteTitle: setting('title'),
 
-  siteTitle: Discourse.computed.setting('title'),
+  _handleLogout() {
+    if (this.currentUser) {
+      this.currentUser.destroySession().then(() => logout(this.siteSettings, this.keyValueStore));
+    }
+  },
 
   actions: {
+
+    showSearchHelp() {
+      ajax("/static/search_help.html", { dataType: 'html' }).then(model => {
+        showModal('searchHelp', { model });
+      });
+    },
+
+    toggleAnonymous() {
+      ajax("/users/toggle-anon", {method: 'POST'}).then(() => {
+        window.location.reload();
+      });
+    },
+
+    toggleMobileView() {
+      mobile.toggleMobileView();
+    },
+
+    logout: unlessReadOnly('_handleLogout', I18n.t("read_only_mode.logout_disabled")),
+
     _collectTitleTokens(tokens) {
       tokens.push(this.get('siteTitle'));
       Discourse.set('_docTitle', tokens.join(' - '));
@@ -28,12 +58,6 @@ const ApplicationRoute = Discourse.Route.extend(OpenComposer, {
       return this._super();
     },
 
-    // This is here as a bugfix for when an Ember Cloaked view triggers
-    // a scroll after a controller has been torn down. The real fix
-    // should be to fix ember cloaking to not do that, but this catches
-    // it safely just in case.
-    postChangedRoute: Ember.K,
-
     showTopicEntrance(data) {
       this.controllerFor('topic-entrance').send('show', data);
     },
@@ -44,66 +68,60 @@ const ApplicationRoute = Discourse.Route.extend(OpenComposer, {
     },
 
     composePrivateMessage(user, post) {
-      const self = this;
-      this.transitionTo('userActivity', user).then(function () {
-        self.controllerFor('user-activity').send('composePrivateMessage', user, post);
+
+      const recipient = user ? user.get('username') : '',
+          reply = post ? window.location.protocol + "//" + window.location.host + post.get("url") : null;
+
+      // used only once, one less dependency
+      const Composer = require('discourse/models/composer').default;
+      return this.controllerFor('composer').open({
+        action: Composer.PRIVATE_MESSAGE,
+        usernames: recipient,
+        archetypeId: 'private_message',
+        draftKey: 'new_private_message',
+        reply: reply
       });
     },
 
     error(err, transition) {
-      if (err.status === 404) {
-        // 404
-        this.intermediateTransitionTo('unknown');
-        return;
+      let xhr = {};
+      if (err.jqXHR) {
+        xhr = err.jqXHR;
       }
 
-      const exceptionController = this.controllerFor('exception'),
-            stack = err.stack;
+      const xhrOrErr = err.jqXHR ? xhr : err;
 
-      // If we have a stack call `toString` on it. It gives us a better
-      // stack trace since `console.error` uses the stack track of this
-      // error callback rather than the original error.
-      let errorString = err.toString();
-      if (stack) { errorString = stack.toString(); }
-
-      if (err.statusText) { errorString = err.statusText; }
+      const exceptionController = this.controllerFor('exception');
 
       const c = window.console;
       if (c && c.error) {
-        c.error(errorString);
+        c.error(xhrOrErr);
       }
-      exceptionController.setProperties({ lastTransition: transition, thrown: err });
+
+      exceptionController.setProperties({ lastTransition: transition, thrown: xhrOrErr });
 
       this.intermediateTransitionTo('exception');
+      return true;
     },
 
-    showLogin: unlessReadOnly('handleShowLogin'),
+    showLogin: unlessReadOnly('handleShowLogin', I18n.t("read_only_mode.login_disabled")),
 
-    showCreateAccount: unlessReadOnly('handleShowCreateAccount'),
+    showCreateAccount: unlessReadOnly('handleShowCreateAccount', I18n.t("read_only_mode.login_disabled")),
 
     showForgotPassword() {
       showModal('forgotPassword', { title: 'forgot_password.title' });
     },
 
     showNotActivated(props) {
-      const controller = showModal('not-activated', {title: 'log_in' });
-      controller.setProperties(props);
+      showModal('not-activated', {title: 'log_in' }).setProperties(props);
     },
 
-    showUploadSelector(composerView) {
-      showModal('uploadSelector');
-      this.controllerFor('upload-selector').setProperties({ composerView: composerView });
+    showUploadSelector(toolbarEvent) {
+      showModal('uploadSelector').setProperties({ toolbarEvent, imageUrl: null, imageLink: null });
     },
 
     showKeyboardShortcutsHelp() {
       showModal('keyboard-shortcuts-help', { title: 'keyboard_shortcuts_help.title'});
-    },
-
-    showSearchHelp() {
-      // TODO: @EvitTrout how do we get a loading indicator here?
-      Discourse.ajax("/static/search_help.html", { dataType: 'html' }).then(function(model){
-        showModal('searchHelp', { model });
-      });
     },
 
     // Close the current modal, and destroy its state.
@@ -125,20 +143,21 @@ const ApplicationRoute = Discourse.Route.extend(OpenComposer, {
     },
 
     editCategory(category) {
-      const self = this;
-      Discourse.Category.reloadById(category.get('id')).then(function (model) {
-        self.site.updateCategory(model);
+      Category.reloadById(category.get('id')).then((atts) => {
+        const model = this.store.createRecord('category', atts.category);
+        model.setupGroupsAndPermissions();
+        this.site.updateCategory(model);
         showModal('editCategory', { model });
-        self.controllerFor('editCategory').set('selectedTab', 'general');
+        this.controllerFor('editCategory').set('selectedTab', 'general');
       });
     },
 
-    deleteSpammer: function (user) {
+    deleteSpammer(user) {
       this.send('closeModal');
       user.deleteAsSpammer(function() { window.location.reload(); });
     },
 
-    checkEmail: function (user) {
+    checkEmail(user) {
       user.checkEmail();
     },
 
@@ -149,8 +168,12 @@ const ApplicationRoute = Discourse.Route.extend(OpenComposer, {
       this.render(w, {into: 'modal/topic-bulk-actions', outlet: 'bulkOutlet', controller: factory ? controllerName : 'topic-bulk-actions'});
     },
 
-    createNewTopicViaParams: function(title, body, category_id, category) {
-      this.openComposerWithParams(this.controllerFor('discovery/topics'), title, body, category_id, category);
+    createNewTopicViaParams(title, body, category_id, category, tags) {
+      this.openComposerWithTopicParams(this.controllerFor('discovery/topics'), title, body, category_id, category, tags);
+    },
+
+    createNewMessageViaParams(username, title, body) {
+      this.openComposerWithMessageParams(username, title, body);
     }
   },
 
@@ -172,11 +195,16 @@ const ApplicationRoute = Discourse.Route.extend(OpenComposer, {
   },
 
   handleShowCreateAccount() {
-    this._autoLogin('createAccount', 'create-account');
+    if (this.siteSettings.enable_sso) {
+      const returnPath = encodeURIComponent(window.location.pathname);
+      window.location = Discourse.getURL('/session/sso?return_path=' + returnPath);
+    } else {
+      this._autoLogin('createAccount', 'create-account');
+    }
   },
 
   _autoLogin(modal, modalClass, notAuto) {
-    const methods = Em.get('Discourse.LoginMethod.all');
+    const methods = findAll(this.siteSettings);
     if (!this.siteSettings.enable_local_logins && methods.length === 1) {
       this.controllerFor('login').send('externalLogin', methods[0]);
     } else {

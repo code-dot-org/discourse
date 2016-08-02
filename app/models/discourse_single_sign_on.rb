@@ -10,12 +10,16 @@ class DiscourseSingleSignOn < SingleSignOn
     SiteSetting.sso_secret
   end
 
-  def self.generate_url(return_path="/")
+  def self.generate_sso(return_path="/")
     sso = new
     sso.nonce = SecureRandom.hex
     sso.register_nonce(return_path)
     sso.return_sso_url = Discourse.base_url + "/session/sso_login"
-    sso.to_url
+    sso
+  end
+
+  def self.generate_url(return_path="/")
+    generate_sso(return_path).to_url
   end
 
   def register_nonce(return_path)
@@ -52,6 +56,9 @@ class DiscourseSingleSignOn < SingleSignOn
       sso_record = user.single_sign_on_record
     end
 
+    # ensure it's not staged anymore
+    user.staged = false
+
     # if the user isn't new or it's attached to the SSO record we might be overriding username or email
     unless user.new_record?
       change_external_attributes_and_override(sso_record, user)
@@ -68,11 +75,17 @@ class DiscourseSingleSignOn < SingleSignOn
     end
 
     user.ip_address = ip_address
+
     user.admin = admin unless admin.nil?
     user.moderator = moderator unless moderator.nil?
 
     # optionally save the user and sso_record if they have changed
     user.save!
+
+    unless admin.nil? && moderator.nil?
+      Group.refresh_automatic_groups!(:admins, :moderators, :staff)
+    end
+
     sso_record.save!
 
     sso_record && sso_record.user
@@ -81,19 +94,21 @@ class DiscourseSingleSignOn < SingleSignOn
   private
 
   def match_email_or_create_user(ip_address)
-    user = User.find_by_email(email)
+    unless user = User.find_by_email(email)
+      try_name = name.presence
+      try_username = username.presence
 
-    try_name = name.blank? ? nil : name
-    try_username = username.blank? ? nil : username
+      user_params = {
+        email: email,
+        name: try_name || User.suggest_name(try_username || email),
+        username: UserNameSuggester.suggest(try_username || try_name || email),
+        ip_address: ip_address
+      }
 
-    user_params = {
-      email: email,
-      name:  try_name || User.suggest_name(try_username || email),
-      username: UserNameSuggester.suggest(try_username || try_name || email),
-      ip_address: ip_address
-    }
+      user = User.create!(user_params)
+    end
 
-    if user || user = User.create!(user_params)
+    if user
       if sso_record = user.single_sign_on_record
         sso_record.last_payload = unsigned_payload
         sso_record.external_id = external_id
@@ -114,12 +129,11 @@ class DiscourseSingleSignOn < SingleSignOn
       user.email = email
     end
 
-    if SiteSetting.sso_overrides_username &&
-        user.username != username
+    if SiteSetting.sso_overrides_username && user.username != username && username.present?
       user.username = UserNameSuggester.suggest(username || name || email, user.username)
     end
 
-    if SiteSetting.sso_overrides_name && user.name != name
+    if SiteSetting.sso_overrides_name && user.name != name && name.present?
       user.name = name || User.suggest_name(username.blank? ? email : username)
     end
 
@@ -127,28 +141,7 @@ class DiscourseSingleSignOn < SingleSignOn
       avatar_force_update ||
       sso_record.external_avatar_url != avatar_url)
 
-      begin
-        tempfile = FileHelper.download(avatar_url, SiteSetting.max_image_size_kb.kilobytes, "sso-avatar", true)
-
-        ext = FastImage.type(tempfile).to_s
-        tempfile.rewind
-
-        upload = Upload.create_for(user.id, tempfile, "external-avatar." + ext, tempfile.size, { origin: avatar_url })
-        user.uploaded_avatar_id = upload.id
-
-        unless user.user_avatar
-          user.build_user_avatar
-        end
-
-        if !user.user_avatar.contains_upload?(upload.id)
-          user.user_avatar.custom_upload_id = upload.id
-        end
-      rescue => e
-        # skip saving, we are not connected to the net
-        Rails.logger.warn "#{e}: Failed to download external avatar: #{avatar_url}, user id #{ user.id }"
-      ensure
-        tempfile.close! if tempfile && tempfile.respond_to?(:close!)
-      end
+      UserAvatar.import_url_for_user(avatar_url, user)
     end
 
     # change external attributes for sso record
