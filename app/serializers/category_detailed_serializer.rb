@@ -11,8 +11,11 @@ class CategoryDetailedSerializer < BasicCategorySerializer
              :posts_month,
              :posts_year,
              :description_excerpt,
+             :is_collapsed_category,
+             :can_expand_categories,
              :is_uncategorized,
-             :subcategory_ids
+             :subcategory_ids,
+             :should_default_to_show?
 
   has_many :featured_users, serializer: BasicUserSerializer
   has_many :displayable_topics, serializer: ListableTopicSerializer, embed: :objects, key: :topics
@@ -31,6 +34,14 @@ class CategoryDetailedSerializer < BasicCategorySerializer
 
   def description_excerpt
     PrettyText.excerpt(description,300) if description
+  end
+
+  def is_collapsed_category
+    name.starts_with? 'CSP '
+  end
+
+  def can_expand_categories
+    name == 'CSP'
   end
 
   def include_subcategory_ids?

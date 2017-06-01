@@ -10,7 +10,7 @@
       </thead>
       <tbody>
         {{#each c in categories}}
-          <tr data-category_id='{{unbound c.id}}' {{bind-attr class="c.description_excerpt:has-description:no-description c.logo_url:has-logo:no-logo"}}>
+          <tr data-category_id='{{unbound c.id}}' {{bind-attr class="c.description_excerpt:has-description:no-description c.logo_url:has-logo:no-logo c.is_collapsed_category:collapsed-row:uncollapsed-row"}}>
             <td class='category' style="border-color: #{{unbound c.color}}">
               <div>
                 <div class="pull-left">
@@ -30,13 +30,10 @@
                   {{category-unread category=c}}
                 {{/if}}
               {{/if}}
-              {{#if c.subcategories}}
-                <div class='subcategories'>
-                  {{#each s in c.subcategories}}
-                    {{category-link s hideParent="true"}}
-                    {{category-unread category=s}}
-                  {{/each}}
-                </div>
+              {{#if c.can_expand_categories}}
+                  <button onclick="$('.collapsed-row').show()">
+                    View CSP Units
+                  </button>
               {{/if}}
             </td>
             <td {{bind-attr class="c.archived :latest"}}>

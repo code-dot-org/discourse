@@ -397,6 +397,10 @@ SQL
   def publish_discourse_stylesheet
     DiscourseStylesheets.cache.clear
   end
+
+  def should_default_to_show?
+    return !(name.starts_with?('CSP '))
+  end
 end
 
 # == Schema Information
