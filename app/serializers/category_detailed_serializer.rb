@@ -36,7 +36,9 @@ class CategoryDetailedSerializer < BasicCategorySerializer
     PrettyText.excerpt(description,300) if description
   end
 
-  # Band-aid fix for category collapsing. CSD and CSP units are their own categories 
+  # Band-aid fix for category collapsing. CSD and CSP units are their own categories
+  # but we want to hide them to consume less space in the front. So the CSP and CSD
+  # category will get buttons to expand the the other categories
   def category_collapse_name
     if slug =~ /csp\d/
       'csp-collapsed'

@@ -31,10 +31,11 @@
                 {{/if}}
               {{/if}}
               {{#if c.category_expanding_class}}
-                  <button class= "btn"
+                  <button class="btn"
                     {{action "expand" c.category_expanding_class}}
+                    {{bind-attr id="c.category_expanding_class"}}
                   >
-                    View {{c.name}} Units
+                    Expand units for this course
                   </button>
               {{/if}}
             </td>
