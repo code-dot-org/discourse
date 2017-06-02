@@ -14,8 +14,7 @@ class CategoryDetailedSerializer < BasicCategorySerializer
              :category_collapse_name,
              :category_expanding_class,
              :is_uncategorized,
-             :subcategory_ids,
-             :should_default_to_show?
+             :subcategory_ids
 
   has_many :featured_users, serializer: BasicUserSerializer
   has_many :displayable_topics, serializer: ListableTopicSerializer, embed: :objects, key: :topics

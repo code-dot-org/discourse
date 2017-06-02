@@ -22,6 +22,14 @@
                 <div class="category-description">
                   {{{c.description_excerpt}}}
                 </div>
+                {{#if c.category_expanding_class}}
+                    <button class="btn"
+                      {{action "expand" c.category_expanding_class}}
+                      {{bind-attr id="c.category_expanding_class"}}
+                    >
+                        Expand units for this course
+                    </button>
+                {{/if}}
                 <div class="clearfix"></div>
               </div>
             </td>
