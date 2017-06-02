@@ -8,8 +8,13 @@ class QueuedPostsController < ApplicationController
     state = QueuedPost.states[(params[:state] || 'new').to_sym]
     state ||= QueuedPost.states[:new]
 
-    @queued_posts = QueuedPost.visible.where(state: state).includes(:topic, :user)
-    render_serialized(@queued_posts, QueuedPostSerializer, root: :queued_posts, rest_serializer: true)
+    @queued_posts = QueuedPost.visible.where(state: state).includes(:topic, :user).order(:created_at)
+    render_serialized(@queued_posts,
+                      QueuedPostSerializer,
+                      root: :queued_posts,
+                      rest_serializer: true,
+                      refresh_queued_posts: "/queued_posts?status=new")
+
   end
 
   def update
@@ -20,13 +25,37 @@ class QueuedPostsController < ApplicationController
     end
 
     state = params[:queued_post][:state]
-    if state == 'approved'
-      qp.approve!(current_user)
-    elsif state == 'rejected'
-      qp.reject!(current_user)
+    begin
+      if state == 'approved'
+        qp.approve!(current_user)
+      elsif state == 'rejected'
+        qp.reject!(current_user)
+        if params[:queued_post][:delete_user] == 'true' && guardian.can_delete_user?(qp.user)
+          UserDestroyer.new(current_user).destroy(qp.user, user_deletion_opts)
+        end
+      end
+    rescue StandardError => e
+      return render_json_error e.message
     end
 
     render_serialized(qp, QueuedPostSerializer, root: :queued_posts)
   end
+
+
+  private
+
+    def user_deletion_opts
+      base = {
+        context:           I18n.t('queue.delete_reason', {performed_by: current_user.username}),
+        delete_posts:      true,
+        delete_as_spammer: true
+      }
+
+      if Rails.env.production? && ENV["Staging"].nil?
+        base.merge!({block_email: true, block_ip: true})
+      end
+
+      base
+    end
 
 end

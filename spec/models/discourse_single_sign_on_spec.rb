@@ -1,4 +1,4 @@
-require "spec_helper"
+require "rails_helper"
 
 describe DiscourseSingleSignOn do
   before do
@@ -19,6 +19,7 @@ describe DiscourseSingleSignOn do
     sso.username = "sam"
     sso.name = "sam saffron"
     sso.external_id = "100"
+    sso.require_activation = false
     sso.custom_fields["a"] = "Aa"
     sso.custom_fields["b.b"] = "B.b"
     sso
@@ -30,6 +31,7 @@ describe DiscourseSingleSignOn do
     expect(parsed.username).to eq sso.username
     expect(parsed.name).to eq sso.name
     expect(parsed.external_id).to eq sso.external_id
+    expect(parsed.require_activation).to eq false
     expect(parsed.custom_fields["a"]).to eq "Aa"
     expect(parsed.custom_fields["b.b"]).to eq "B.b"
   end
@@ -60,6 +62,42 @@ describe DiscourseSingleSignOn do
     sso.external_id = "A"
     user = sso.lookup_or_create_user(ip_address)
     expect(user).to_not be_nil
+  end
+
+  it "unstaged users" do
+    email = "staged@user.com"
+    Fabricate(:user, staged: true, email: email)
+
+    sso = DiscourseSingleSignOn.new
+    sso.username = "staged"
+    sso.name = "Staged User"
+    sso.email = email
+    sso.external_id = "B"
+    user = sso.lookup_or_create_user(ip_address)
+
+    expect(user).to_not be_nil
+    expect(user.staged).to be(false)
+  end
+
+  it "can set admin and moderator" do
+    admin_group = Group[:admins]
+    mod_group = Group[:moderators]
+    staff_group = Group[:staff]
+
+    sso = DiscourseSingleSignOn.new
+    sso.username = "misteradmin"
+    sso.name = "Bob Admin"
+    sso.email = "admin@admin.com"
+    sso.external_id = "id"
+    sso.admin = true
+    sso.moderator = true
+
+    user = sso.lookup_or_create_user(ip_address)
+    staff_group.reload
+
+    expect(mod_group.users.where('users.id = ?', user.id).exists?).to eq(true)
+    expect(staff_group.users.where('users.id = ?', user.id).exists?).to eq(true)
+    expect(admin_group.users.where('users.id = ?', user.id).exists?).to eq(true)
   end
 
   it "can override name / email / username" do
@@ -132,12 +170,34 @@ describe DiscourseSingleSignOn do
   end
 
   it "generates a correct sso url" do
-
     url, payload = DiscourseSingleSignOn.generate_url.split("?")
     expect(url).to eq @sso_url
 
     sso = DiscourseSingleSignOn.parse(payload)
     expect(sso.nonce).to_not be_nil
+  end
+
+  context 'trusting emails' do
+    let(:sso) {
+      sso = DiscourseSingleSignOn.new
+      sso.username = "test"
+      sso.name = "test"
+      sso.email = "test@example.com"
+      sso.external_id = "A"
+      sso
+    }
+
+    it 'activates users by default' do
+      user = sso.lookup_or_create_user(ip_address)
+      expect(user.active).to eq(true)
+    end
+
+    it 'does not activate user when asked not to' do
+      sso.require_activation = true
+      user = sso.lookup_or_create_user(ip_address)
+      expect(user.active).to eq(false)
+    end
+
   end
 
   context 'welcome emails' do

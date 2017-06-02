@@ -3,6 +3,7 @@
 # fill it up
 
 require 'weakref'
+require 'base64'
 
 class DistributedCache
   @subscribers = []
@@ -24,13 +25,14 @@ class DistributedCache
       begin
         current = @subscribers[i]
 
-        next if payload["origin"] == current.object_id
+        next if payload["origin"] == current.identity
         next if current.key != payload["hash_key"]
+        next if payload["discourse_version"] != Discourse.git_version
 
         hash = current.hash(message.site_id)
 
         case payload["op"]
-          when "set"    then hash[payload["key"]] = payload["value"]
+          when "set" then hash[payload["key"]] = payload["marshalled"] ?  Marshal.load(Base64.decode64(payload["value"])) : payload["value"]
           when "delete" then hash.delete(payload["key"])
           when "clear"  then hash.clear
         end
@@ -61,13 +63,17 @@ class DistributedCache
   end
 
   def self.publish(hash, message)
-    message[:origin] = hash.object_id
+    message[:origin] = hash.identity
     message[:hash_key] = hash.key
+    message[:discourse_version] = Discourse.git_version
     MessageBus.publish(channel_name, message, { user_ids: [-1] })
   end
 
   def self.set(hash, key, value)
-    publish(hash, { op: :set, key: key, value: value })
+    # special support for set
+    marshal = (Set === value || Hash === value)
+    value = Base64.encode64(Marshal.dump(value)) if marshal
+    publish(hash, { op: :set, key: key, value: value, marshalled: marshal })
   end
 
   def self.delete(hash, key)
@@ -90,6 +96,11 @@ class DistributedCache
 
     @key = key
     @data = {}
+  end
+
+  def identity
+    # fork resilient / multi machine identity
+    (@seed_id ||= SecureRandom.hex) + "#{Process.pid}"
   end
 
   def []=(k,v)

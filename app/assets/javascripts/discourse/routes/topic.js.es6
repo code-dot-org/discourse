@@ -1,13 +1,14 @@
+import DiscourseURL from 'discourse/lib/url';
+
 let isTransitioning = false,
     scheduledReplace = null,
     lastScrollPos = null;
 
 const SCROLL_DELAY = 500;
 
-import ShowFooter from "discourse/mixins/show-footer";
 import showModal from 'discourse/lib/show-modal';
 
-const TopicRoute = Discourse.Route.extend(ShowFooter, {
+const TopicRoute = Discourse.Route.extend({
   redirect() { return this.redirectIfLoginRequired(); },
 
   queryParams: {
@@ -39,13 +40,9 @@ const TopicRoute = Discourse.Route.extend(ShowFooter, {
 
   actions: {
 
-    showTopicAdminMenu() {
-      this.controllerFor("topic-admin-menu").send("show");
-    },
-
     showFlags(model) {
       showModal('flag', { model });
-      this.controllerFor('flag').setProperties({ selected: null });
+      this.controllerFor('flag').setProperties({ selected: null, flagTopic: false });
     },
 
     showFlagTopic(model) {
@@ -54,13 +51,18 @@ const TopicRoute = Discourse.Route.extend(ShowFooter, {
     },
 
     showAutoClose() {
-      showModal('edit-topic-auto-close', { model: this.modelFor('topic'), title: 'topic.auto_close_title' });
+      showModal('edit-topic-auto-close', { model: this.modelFor('topic') });
       this.controllerFor('modal').set('modalClass', 'edit-auto-close-modal');
+    },
+
+    showChangeTimestamp() {
+      showModal('change-timestamp', { model: this.modelFor('topic'), title: 'topic.change_timestamp.title' });
     },
 
     showFeatureTopic() {
       showModal('featureTopic', { model: this.modelFor('topic'), title: 'topic.feature_topic.title' });
       this.controllerFor('modal').set('modalClass', 'feature-topic-modal');
+      this.controllerFor('feature_topic').reset();
     },
 
     showInvite() {
@@ -71,6 +73,7 @@ const TopicRoute = Discourse.Route.extend(ShowFooter, {
     showHistory(model) {
       showModal('history', { model });
       this.controllerFor('history').refresh(model.get("id"), "latest");
+      this.controllerFor('history').set('post', model);
       this.controllerFor('modal').set('modalClass', 'history-modal');
     },
 
@@ -94,7 +97,7 @@ const TopicRoute = Discourse.Route.extend(ShowFooter, {
     // Use replaceState to update the URL once it changes
     postChangedRoute(currentPost) {
       // do nothing if we are transitioning to another route
-      if (isTransitioning || Discourse.TopicRoute.disableReplaceState) { return; }
+      if (isTransitioning || TopicRoute.disableReplaceState) { return; }
 
       const topic = this.modelFor('topic');
       if (topic && currentPost) {
@@ -126,7 +129,7 @@ const TopicRoute = Discourse.Route.extend(ShowFooter, {
   _replaceUnlessScrolling(url) {
     const currentPos = parseInt($(document).scrollTop(), 10);
     if (currentPos === lastScrollPos) {
-      Discourse.URL.replaceState(url);
+      DiscourseURL.replaceState(url);
       return;
     }
     lastScrollPos = currentPos;
@@ -155,10 +158,7 @@ const TopicRoute = Discourse.Route.extend(ShowFooter, {
     let topic = this.modelFor('topic');
     if (topic && (topic.get('id') === parseInt(params.id, 10))) {
       this.setupParams(topic, queryParams);
-      // If we have the existing model, refresh it
-      return topic.get('postStream').refresh().then(function() {
-        return topic;
-      });
+      return topic;
     } else {
       topic = this.store.createRecord('topic', _.omit(params, 'username_filters', 'filter'));
       return this.setupParams(topic, queryParams);
@@ -171,64 +171,50 @@ const TopicRoute = Discourse.Route.extend(ShowFooter, {
 
     const topic = this.modelFor('topic');
     this.session.set('lastTopicIdViewed', parseInt(topic.get('id'), 10));
-    this.controllerFor('search').set('searchContext', topic.get('searchContext'));
   },
 
   deactivate() {
     this._super();
 
-    // Clear the search context
-    this.controllerFor('search').set('searchContext', null);
+    this.searchService.set('searchContext', null);
     this.controllerFor('user-card').set('visible', false);
 
-    const topicController = this.controllerFor('topic'),
-        postStream = topicController.get('postStream');
+    const topicController = this.controllerFor('topic');
+    const postStream = topicController.get('model.postStream');
+
     postStream.cancelFilter();
 
     topicController.set('multiSelect', false);
     topicController.unsubscribe();
     this.controllerFor('composer').set('topic', null);
-    Discourse.ScreenTrack.current().stop();
+    this.screenTrack.stop();
 
-    const headerController = this.controllerFor('header');
-    if (headerController) {
-      headerController.set('topic', null);
-      headerController.set('showExtraInfo', false);
-    }
+    this.appEvents.trigger('header:hide-topic');
   },
 
   setupController(controller, model) {
     // In case we navigate from one topic directly to another
     isTransitioning = false;
 
-    if (Discourse.Mobile.mobileView) {
-      // close the dropdowns on mobile
-      $('.d-dropdown').hide();
-      $('header ul.icons li').removeClass('active');
-      $('[data-toggle="dropdown"]').parent().removeClass('open');
-    }
-
     controller.setProperties({
-      model: model,
-      editingTopic: false
+      model,
+      editingTopic: false,
+      firstPostExpanded: false
     });
 
-    Discourse.TopicRoute.trigger('setupTopicController', this);
+    TopicRoute.trigger('setupTopicController', this);
 
-    this.controllerFor('header').setProperties({
-      topic: model,
-      showExtraInfo: false
-    });
+    this.searchService.set('searchContext', model.get('searchContext'));
 
-    this.controllerFor('topic-admin-menu').set('model', model);
+    // close the multi select when switching topics
+    controller.set('multiSelect', false);
 
     this.controllerFor('composer').set('topic', model);
-    Discourse.TopicTrackingState.current().trackIncoming('all');
+    this.topicTrackingState.trackIncoming('all');
     controller.subscribe();
 
-    this.controllerFor('topic-progress').set('model', model);
     // We reset screen tracking every time a topic is entered
-    Discourse.ScreenTrack.current().start(model.get('id'), controller);
+    this.screenTrack.start(model.get('id'), controller);
   }
 
 });

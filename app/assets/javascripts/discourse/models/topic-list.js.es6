@@ -1,6 +1,6 @@
+import { ajax } from 'discourse/lib/ajax';
 import RestModel from 'discourse/models/rest';
 import Model from 'discourse/models/model';
-
 
 function topicsFrom(result, store) {
   if (!result) { return; }
@@ -26,44 +26,33 @@ function topicsFrom(result, store) {
 const TopicList = RestModel.extend({
   canLoadMore: Em.computed.notEmpty("more_topics_url"),
 
-  forEachNew: function(topics, callback) {
+  forEachNew(topics, callback) {
     const topicIds = [];
-    _.each(this.get('topics'),function(topic) {
-      topicIds[topic.get('id')] = true;
-    });
 
-    _.each(topics,function(topic) {
-      if(!topicIds[topic.id]) {
+    _.each(this.get('topics'), topic => topicIds[topic.get('id')] = true);
+
+    _.each(topics, topic => {
+      if (!topicIds[topic.id]) {
         callback(topic);
       }
     });
   },
 
-  refreshSort: function(order, ascending) {
-    const self = this,
-        params = this.get('params');
+  refreshSort(order, ascending) {
+    let params = this.get('params') || {};
 
-    params.order = order || params.order;
-
-    if (ascending === undefined) {
-      params.ascending = ascending;
+    if (params.q) {
+      // search is unique, nothing else allowed with it
+      params = { q: params.q };
     } else {
+      params.order = order || params.order;
       params.ascending = ascending;
     }
 
-    this.set('loaded', false);
-    const store = this.store;
-    store.findFiltered('topicList', {filter: this.get('filter'), params}).then(function(tl) {
-      const newTopics = tl.get('topics'),
-            topics = self.get('topics');
-
-      topics.clear();
-      topics.pushObjects(newTopics);
-      self.setProperties({ loaded: true, more_topics_url: tl.get('topic_list.more_topics_url') });
-    });
+    this.set('params', params);
   },
 
-  loadMore: function() {
+  loadMore() {
     if (this.get('loadingMore')) { return Ember.RSVP.resolve(); }
 
     const moreUrl = this.get('more_topics_url');
@@ -72,7 +61,7 @@ const TopicList = RestModel.extend({
       this.set('loadingMore', true);
 
       const store = this.store;
-      return Discourse.ajax({url: moreUrl}).then(function (result) {
+      return ajax({url: moreUrl}).then(function (result) {
         let topicsAdded = 0;
 
         if (result) {
@@ -102,19 +91,17 @@ const TopicList = RestModel.extend({
 
 
   // loads topics with these ids "before" the current topics
-  loadBefore: function(topic_ids){
+  loadBefore(topic_ids) {
     const topicList = this,
-        topics = this.get('topics');
+          topics = this.get('topics');
 
     // refresh dupes
-    topics.removeObjects(topics.filter(function(topic){
-      return topic_ids.indexOf(topic.get('id')) >= 0;
-    }));
+    topics.removeObjects(topics.filter(topic => topic_ids.indexOf(topic.get('id')) >= 0));
 
-    const url = Discourse.getURL("/") + this.get('filter') + "?topic_ids=" + topic_ids.join(",");
-
+    const url = `${Discourse.getURL("/")}${this.get('filter')}?topic_ids=${topic_ids.join(",")}`;
     const store = this.store;
-    return Discourse.ajax({ url }).then(function(result) {
+
+    return ajax({ url }).then(result => {
       let i = 0;
       topicList.forEachNew(topicsFrom(result, store), function(t) {
         // highlight the first of the new topics so we can get a visual feedback
@@ -141,9 +128,6 @@ TopicList.reopenClass({
     json.per_page = json.topic_list.per_page;
     json.topics = topicsFrom(json, store);
 
-    if (json.topic_list.filtered_category) {
-      json.category = Discourse.Category.create(json.topic_list.filtered_category);
-    }
     return json;
   },
 
@@ -152,15 +136,9 @@ TopicList.reopenClass({
     return store.findFiltered('topicList', {filter, params});
   },
 
-  list(filter) {
-    Ember.warn('`Discourse.TopicList.list` is deprecated. Use the store instead');
-    return this.find(filter);
-  },
-
-  // Sets `hideCategory` if all topics in the last have a particular category
+  // hide the category when it has no children
   hideUniformCategory(list, category) {
-    const hideCategory = !list.get('topics').any(function (t) { return t.get('category') !== category; });
-    list.set('hideCategory', hideCategory);
+    list.set('hideCategory', category && !category.get("has_children"));
   }
 
 });

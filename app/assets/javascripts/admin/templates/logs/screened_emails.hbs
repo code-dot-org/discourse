@@ -4,7 +4,7 @@
 </p>
 <br>
 
-{{#loading-spinner condition=loading}}
+{{#conditional-loading-spinner condition=loading}}
   {{#if model.length}}
 
     <div class='table screened-emails'>
@@ -19,10 +19,10 @@
         <div class="clearfix"></div>
       </div>
 
-      {{view 'screened-emails-list' content=controller}}
+      {{screened-emails-list content=model}}
     </div>
 
   {{else}}
     {{i18n 'search.no_results'}}
   {{/if}}
-{{/loading-spinner}}
+{{/conditional-loading-spinner}}

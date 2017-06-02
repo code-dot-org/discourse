@@ -1,4 +1,4 @@
-require 'spec_helper'
+require 'rails_helper'
 require 'email/message_builder'
 
 describe Email::MessageBuilder do
@@ -136,10 +136,14 @@ describe Email::MessageBuilder do
 
   context "header args" do
 
-    let(:message_with_header_args) { Email::MessageBuilder.new(to_address,
-                                                               body: 'hello world',
-                                                               topic_id: 1234,
-                                                               post_id: 4567) }
+    let(:message_with_header_args) do
+      Email::MessageBuilder.new(
+        to_address,
+        body: 'hello world',
+        topic_id: 1234,
+        post_id: 4567,
+      )
+    end
 
     it "passes through a post_id" do
       expect(message_with_header_args.header_args['X-Discourse-Post-Id']).to eq('4567')
@@ -168,14 +172,20 @@ describe Email::MessageBuilder do
 
       let(:message_with_unsubscribe) { Email::MessageBuilder.new(to_address,
                                                                 body: 'hello world',
-                                                                add_unsubscribe_link: true) }
+                                                                add_unsubscribe_link: true,
+                                                                url: "/t/1234",
+                                                                unsubscribe_url: "/t/1234/unsubscribe") }
 
       it "has an List-Unsubscribe header" do
         expect(message_with_unsubscribe.header_args['List-Unsubscribe']).to be_present
       end
 
-      it "has the user preferences url in the body" do
-        expect(message_with_unsubscribe.body).to match(builder.template_args[:user_preferences_url])
+      it "has the unsubscribe url in the body" do
+        expect(message_with_unsubscribe.body).to match('/t/1234/unsubscribe')
+      end
+
+      it "does not add unsubscribe via email link without site setting set" do
+        expect(message_with_unsubscribe.body).to_not match(/mailto:reply@#{Discourse.current_hostname}\?subject=unsubscribe/)
       end
 
     end

@@ -1,4 +1,4 @@
-require 'spec_helper'
+require 'rails_helper'
 require 'letter_avatar'
 
 describe LetterAvatar do
@@ -10,6 +10,6 @@ describe LetterAvatar do
 
     LetterAvatar.cleanup_old
 
-    Dir.entries(File.dirname(path)).length.should == 3
+    expect(Dir.entries(File.dirname(path)).length).to eq(3)
   end
 end

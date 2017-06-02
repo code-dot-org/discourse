@@ -1,9 +1,13 @@
-require 'spec_helper'
+require 'rails_helper'
 require 'email'
 
 describe Email do
 
   describe "is_valid?" do
+
+    it 'treats a nil as invalid' do
+      expect(Email.is_valid?(nil)).to eq(false)
+    end
 
     it 'treats a good email as valid' do
       expect(Email.is_valid?('sam@sam.com')).to eq(true)

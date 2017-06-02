@@ -1,7 +1,8 @@
-import Presence from 'discourse/mixins/presence';
+import { exportEntity } from 'discourse/lib/export-csv';
 import { outputExportResult } from 'discourse/lib/export-result';
+import ScreenedEmail from 'admin/models/screened-email';
 
-export default Ember.ArrayController.extend(Presence, {
+export default Ember.ArrayController.extend({
   loading: false,
 
   actions: {
@@ -13,14 +14,14 @@ export default Ember.ArrayController.extend(Presence, {
     },
 
     exportScreenedEmailList() {
-      Discourse.ExportCsv.exportScreenedEmailList().then(outputExportResult);
+      exportEntity('screened_email').then(outputExportResult);
     }
   },
 
   show() {
     var self = this;
     self.set('loading', true);
-    Discourse.ScreenedEmail.findAll().then(function(result) {
+    ScreenedEmail.findAll().then(function(result) {
       self.set('model', result);
       self.set('loading', false);
     });

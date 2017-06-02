@@ -1,6 +1,6 @@
 # encoding: utf-8
 
-require 'spec_helper'
+require 'rails_helper'
 require_dependency 'post_creator'
 
 describe Category do
@@ -33,6 +33,15 @@ describe Category do
 
       expect(read_restricted).to be false
       expect(resolved).to be_blank
+    end
+  end
+
+  describe "permissions_params" do
+    it "returns the right group names and permission type" do
+      category = Fabricate(:category)
+      group = Fabricate(:group)
+      category_group = Fabricate(:category_group, category: category, group: group)
+      expect(category.permissions_params).to eq({ "#{group.name}" => category_group.permission_type })
     end
   end
 
@@ -73,6 +82,8 @@ describe Category do
       expect(Category.post_create_allowed(guardian).count).to be(4)
       expect(Category.topic_create_allowed(guardian).count).to be(3) # explicitly allowed once, default allowed once
 
+      expect(Category.scoped_to_permissions(nil, [:readonly]).count).to be(2)
+
       # everyone has special semantics, test it as well
       can_post_category.set_permissions(:everyone => :create_post)
       can_post_category.save
@@ -82,6 +93,8 @@ describe Category do
       # anonymous has permission to create no topics
       guardian = Guardian.new(nil)
       expect(Category.post_create_allowed(guardian).count).to be(0)
+      expect(Category.topic_create_allowed(guardian).count).to be(0)
+      expect(Category.scoped_to_permissions(guardian, [:readonly]).count).to be(3)
 
     end
 
@@ -169,22 +182,54 @@ describe Category do
   end
 
   describe 'non-english characters' do
-    let(:category) { Fabricate(:category, name: "测试") }
+    context 'uses ascii slug generator' do
+      before do
+        SiteSetting.slug_generation_method = 'ascii'
+        @category = Fabricate(:category, name: "测试")
+      end
+      after { @category.destroy }
 
-    it "creates a blank slug, this is OK." do
-      expect(category.slug).to be_blank
-      expect(category.slug_for_url).to eq("#{category.id}-category")
+      it "creates a blank slug" do
+        expect(@category.slug).to be_blank
+        expect(@category.slug_for_url).to eq("#{@category.id}-category")
+      end
     end
 
-    it "creates a localized slug if default locale is zh_CN" do
-      SiteSetting.default_locale = 'zh_CN'
-      expect(category.slug).to_not be_blank
-      expect(category.slug_for_url).to eq("ce-shi")
+    context 'uses none slug generator' do
+      before do
+        SiteSetting.slug_generation_method = 'none'
+        @category = Fabricate(:category, name: "测试")
+      end
+      after do
+        SiteSetting.slug_generation_method = 'ascii'
+        @category.destroy
+      end
+
+      it "creates a blank slug" do
+        expect(@category.slug).to be_blank
+        expect(@category.slug_for_url).to eq("#{@category.id}-category")
+      end
+    end
+
+    context 'uses encoded slug generator' do
+      before do
+        SiteSetting.slug_generation_method = 'encoded'
+        @category = Fabricate(:category, name: "测试")
+      end
+      after do
+        SiteSetting.slug_generation_method = 'ascii'
+        @category.destroy
+      end
+
+      it "creates a slug" do
+        expect(@category.slug).to eq("测试")
+        expect(@category.slug_for_url).to eq("测试")
+      end
     end
   end
 
   describe 'slug would be a number' do
-    let(:category) { Fabricate(:category, name: "2") }
+    let(:category) { Fabricate.build(:category, name: "2") }
 
     it 'creates a blank slug' do
       expect(category.slug).to be_blank
@@ -193,21 +238,25 @@ describe Category do
   end
 
   describe 'custom slug can be provided' do
-    it 'has the custom value' do
-      c = Fabricate(:category, name: "Cats", slug: "cats-category")
-      expect(c.slug).to eq("cats-category")
-    end
+    it 'can be sanitized' do
+      @c = Fabricate(:category, name: "Fun Cats", slug: "fun-cats")
+      @cat = Fabricate(:category, name: "love cats", slug: "love-cats")
 
-    it 'and be sanitized' do
-      c = Fabricate(:category, name: 'Cats', slug: '  invalid slug')
-      c.slug.should == 'invalid-slug'
-    end
+      @c.slug = '  invalid slug'
+      @c.save
+      expect(@c.slug).to eq('invalid-slug')
 
-    it 'fails if custom slug is duplicate with existing' do
-      c1 = Fabricate(:category, name: "Cats", slug: "cats")
-      c2 = Fabricate.build(:category, name: "More Cats", slug: "cats")
-      expect(c2).to_not be_valid
-      expect(c2.errors[:slug]).to be_present
+      c = Fabricate.build(:category, name: "More Fun Cats", slug: "love-cats")
+      expect(c).not_to be_valid
+      expect(c.errors[:slug]).to be_present
+
+      @cat.slug = "#{@c.id}-category"
+      expect(@cat).not_to be_valid
+      expect(@cat.errors[:slug]).to be_present
+
+      @cat.slug = "#{@cat.id}-category"
+      expect(@cat).to be_valid
+      expect(@cat.errors[:slug]).not_to be_present
     end
   end
 
@@ -265,6 +314,30 @@ describe Category do
 
     it "doesn't raise an error if there is no definition topic to rename (uncategorized)" do
       expect { @category.update_attributes(name: 'Troutfishing', topic_id: nil) }.to_not raise_error
+    end
+
+    it "creates permalink when category slug is changed" do
+      @category.update_attributes(slug: 'new-category')
+      expect(Permalink.count).to eq(1)
+    end
+
+    it "creates permalink when sub category slug is changed" do
+      sub_category = Fabricate(:category, slug: 'sub-category', parent_category_id: @category.id)
+      sub_category.update_attributes(slug: 'new-sub-category')
+      expect(Permalink.count).to eq(1)
+    end
+
+    it "deletes permalink when category slug is reused" do
+      Fabricate(:permalink, url: "/c/bikeshed-category")
+      Fabricate(:category, slug: 'bikeshed-category')
+      expect(Permalink.count).to eq(0)
+    end
+
+    it "deletes permalink when sub category slug is reused" do
+      Fabricate(:permalink, url: "/c/main-category/sub-category")
+      main_category = Fabricate(:category, slug: 'main-category')
+      Fabricate(:category, slug: 'sub-category', parent_category_id: main_category.id)
+      expect(Permalink.count).to eq(0)
     end
 
     it "should not set its description topic to auto-close" do
@@ -402,7 +475,7 @@ describe Category do
       before do
         post = create_post(user: @category.user, category: @category.name)
 
-        SiteSetting.stubs(:ninja_edit_window).returns(1.minute.to_i)
+        SiteSetting.stubs(:editing_grace_period).returns(1.minute.to_i)
         post.revise(post.user, { raw: 'updated body' }, revised_at: post.updated_at + 2.minutes)
 
         Category.update_stats
@@ -450,6 +523,22 @@ describe Category do
         subcategory = Fabricate(:category, name: "child",
                                 parent_category_id: parent_category.id)
         expect(subcategory.url).to eq "/c/parent/child"
+      end
+    end
+  end
+
+  describe "#url_with_id" do
+    let(:category) { Fabricate(:category, name: 'cats') }
+
+    it "includes the id in the URL" do
+      expect(category.url_with_id).to eq("/c/#{category.id}-cats")
+    end
+
+    context "child category" do
+      let(:child_category) { Fabricate(:category, parent_category_id: category.id, name: 'dogs') }
+
+      it "includes the id in the URL" do
+        expect(child_category.url_with_id).to eq("/c/cats/dogs/#{child_category.id}")
       end
     end
   end
@@ -515,6 +604,16 @@ describe Category do
       expect(Category.find_by_email('upper@example.com')).to eq(c2)
       expect(Category.find_by_email('mixed.case@example.com')).to eq(c3)
       expect(Category.find_by_email('MIXED.CASE@EXAMPLE.COM')).to eq(c3)
+    end
+  end
+
+  describe "find_by_slug" do
+    it "finds with category and sub category" do
+      category = Fabricate(:category, slug: 'awesome-category')
+      sub_category = Fabricate(:category, parent_category_id: category.id, slug: 'awesome-sub-category')
+
+      expect(Category.find_by_slug('awesome-category')).to eq(category)
+      expect(Category.find_by_slug('awesome-sub-category', 'awesome-category')).to eq(sub_category)
     end
   end
 

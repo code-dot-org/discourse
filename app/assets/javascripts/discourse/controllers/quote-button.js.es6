@@ -1,17 +1,19 @@
-import DiscourseController from 'discourse/controllers/controller';
-import loadScript from 'discourse/lib/load-script';
+import Quote from 'discourse/lib/quote';
+import computed from 'ember-addons/ember-computed-decorators';
+import { selectedText } from 'discourse/lib/utilities';
 
-export default DiscourseController.extend({
+export default Ember.Controller.extend({
   needs: ['topic', 'composer'],
 
-  _loadSanitizer: function() {
-    loadScript('defer/html-sanitizer-bundle');
-  }.on('init'),
+  @computed('buffer', 'postId')
+  post(buffer, postId) {
+    if (!postId || Ember.isEmpty(buffer)) { return null; }
 
-  //  If the buffer is cleared, clear out other state (post)
-  bufferChanged: function() {
-    if (this.blank('buffer')) this.set('post', null);
-  }.observes('buffer'),
+    const postStream = this.get('controllers.topic.model.postStream');
+    const post = postStream.findLoadedPost(postId);
+
+    return post;
+  },
 
   // Save the currently selected text and displays the
   //  "quote reply" button
@@ -26,8 +28,12 @@ export default DiscourseController.extend({
     }
 
     const selection = window.getSelection();
-    // no selections
-    if (selection.rangeCount === 0) return;
+
+     // no selections
+    if (selection.isCollapsed) {
+      this.set('buffer', '');
+      return;
+    }
 
     // retrieve the selected range
     const range = selection.getRangeAt(0),
@@ -39,26 +45,32 @@ export default DiscourseController.extend({
       return;
     }
 
-    const selectedText = Discourse.Utilities.selectedText();
-    if (this.get('buffer') === selectedText) return;
+    const selVal = selectedText();
+    if (this.get('buffer') === selVal) return;
 
     // we need to retrieve the post data from the posts collection in the topic controller
-    const postStream = this.get('controllers.topic.postStream');
-    this.set('post', postStream.findLoadedPost(postId));
-    this.set('buffer', selectedText);
+    this.set('postId', postId);
+    this.set('buffer', selVal);
 
     // create a marker element
     const markerElement = document.createElement("span");
     // containing a single invisible character
-    markerElement.appendChild(document.createTextNode("\u{feff}"));
+    markerElement.appendChild(document.createTextNode("\ufeff"));
+
+    const isMobileDevice = this.site.isMobileDevice;
+    const capabilities = this.capabilities,
+          isIOS = capabilities.isIOS,
+          isAndroid = capabilities.isAndroid;
 
     // collapse the range at the beginning/end of the selection
-    range.collapse(!Discourse.Mobile.isMobileDevice);
+    range.collapse(!isMobileDevice);
     // and insert it at the start of our selection range
     range.insertNode(markerElement);
 
-    // retrieve the position of the market
-    const markerOffset = $(markerElement).offset(),
+    // retrieve the position of the marker
+    const $markerElement = $(markerElement),
+          markerOffset = $markerElement.offset(),
+          parentScrollLeft = $markerElement.parent().scrollLeft(),
           $quoteButton = $('.quote-button');
 
     // remove the marker
@@ -74,7 +86,9 @@ export default DiscourseController.extend({
       let topOff = markerOffset.top;
       let leftOff = markerOffset.left;
 
-      if (Discourse.Mobile.isMobileDevice) {
+      if (parentScrollLeft > 0) leftOff += parentScrollLeft;
+
+      if (isMobileDevice || isIOS || isAndroid) {
         topOff = topOff + 20;
         leftOff = Math.min(leftOff + 10, $(window).width() - $quoteButton.outerWidth());
       } else {
@@ -86,8 +100,18 @@ export default DiscourseController.extend({
   },
 
   quoteText() {
-
+    const Composer = require('discourse/models/composer').default;
+    const postId = this.get('postId');
     const post = this.get('post');
+
+    // defer load if needed, if in an expanded replies section
+    if (!post) {
+      const postStream = this.get('controllers.topic.model.postStream');
+      return postStream.loadPost(postId).then(p => {
+        this.set('post', p);
+        return this.quoteText();
+      });
+    }
 
     // If we can't create a post, delegate to reply as new topic
     if (!this.get('controllers.topic.model.details.can_create_post')) {
@@ -97,11 +121,11 @@ export default DiscourseController.extend({
 
     const composerController = this.get('controllers.composer');
     const composerOpts = {
-      action: Discourse.Composer.REPLY,
-      draftKey: this.get('post.topic.draft_key')
+      action: Composer.REPLY,
+      draftKey: post.get('topic.draft_key')
     };
 
-    if(post.get('post_number') === 1) {
+    if (post.get('post_number') === 1) {
       composerOpts.topic = post.get("topic");
     } else {
       composerOpts.post = post;
@@ -114,10 +138,10 @@ export default DiscourseController.extend({
     }
 
     const buffer = this.get('buffer');
-    const quotedText = Discourse.Quote.build(post, buffer);
+    const quotedText = Quote.build(post, buffer);
     composerOpts.quote = quotedText;
     if (composerController.get('content.viewOpen') || composerController.get('content.viewDraft')) {
-      composerController.appendBlockAtCursor(quotedText.trim());
+      this.appEvents.trigger('composer:insert-text', quotedText);
     } else {
       composerController.open(composerOpts);
     }

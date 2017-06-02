@@ -12,6 +12,8 @@ class ExcerptParser < Nokogiri::XML::SAX::Document
     @strip_links = options[:strip_links] == true
     @text_entities = options[:text_entities] == true
     @markdown_images = options[:markdown_images] == true
+    @keep_newlines = options[:keep_newlines] == true
+    @keep_emoji_images = options[:keep_emoji_images] == true
     @start_excerpt = false
   end
 
@@ -46,11 +48,19 @@ class ExcerptParser < Nokogiri::XML::SAX::Document
   def start_element(name, attributes=[])
     case name
       when "img"
+        attributes = Hash[*attributes.flatten]
+
+        if attributes["class"] == 'emoji'
+          if @keep_emoji_images
+            return include_tag(name, attributes)
+          else
+            return characters(attributes["alt"])
+          end
+        end
 
         # If include_images is set, include the image in markdown
         characters("!") if @markdown_images
 
-        attributes = Hash[*attributes.flatten]
         if attributes["alt"]
           characters("[#{attributes["alt"]}]")
         elsif attributes["title"]
@@ -92,7 +102,11 @@ class ExcerptParser < Nokogiri::XML::SAX::Document
         @in_a = false
       end
     when "p", "br"
-      characters(" ")
+      if @keep_newlines
+        characters("<br>", false, false, false)
+      else
+        characters(" ")
+      end
     when "aside"
       @in_quote = false
     when "div", "span"

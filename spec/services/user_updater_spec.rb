@@ -1,4 +1,4 @@
-require 'spec_helper'
+require 'rails_helper'
 
 describe UserUpdater do
 
@@ -32,26 +32,62 @@ describe UserUpdater do
   describe '#update' do
     it 'saves user' do
       user = Fabricate(:user, name: 'Billy Bob')
-      updater = described_class.new(acting_user, user)
+      updater = UserUpdater.new(acting_user, user)
 
       updater.update(name: 'Jim Tom')
 
       expect(user.reload.name).to eq 'Jim Tom'
     end
 
-    it 'updates bio' do
+    it 'can update categories and tags' do
+      category = Fabricate(:category)
+      tag = Fabricate(:tag)
+
       user = Fabricate(:user)
-      updater = described_class.new(acting_user, user)
+      updater = UserUpdater.new(acting_user, user)
+      updater.update(watched_tags: [tag.name], muted_category_ids: [category.id])
 
-      updater.update(bio_raw: 'my new bio')
+      expect(TagUser.where(
+        user_id: user.id,
+        tag_id: tag.id,
+        notification_level: TagUser.notification_levels[:watching]
+      ).count).to eq(1)
 
-      expect(user.reload.user_profile.bio_raw).to eq 'my new bio'
+      expect(CategoryUser.where(
+        user_id: user.id,
+        category_id: category.id,
+        notification_level: CategoryUser.notification_levels[:muted]
+      ).count).to eq(1)
+
+    end
+
+    it 'updates various fields' do
+      user = Fabricate(:user)
+      updater = UserUpdater.new(acting_user, user)
+
+      updater.update(bio_raw: 'my new bio',
+                     email_always: 'true',
+                     mailing_list_mode: true,
+                     digest_after_minutes: "45",
+                     new_topic_duration_minutes: 100,
+                     auto_track_topics_after_msecs: 101,
+                     email_in_reply_to: false
+                    )
+      user.reload
+
+      expect(user.user_profile.bio_raw).to eq 'my new bio'
+      expect(user.user_option.email_always).to eq true
+      expect(user.user_option.mailing_list_mode).to eq true
+      expect(user.user_option.digest_after_minutes).to eq 45
+      expect(user.user_option.new_topic_duration_minutes).to eq 100
+      expect(user.user_option.auto_track_topics_after_msecs).to eq 101
+      expect(user.user_option.email_in_reply_to).to eq false
     end
 
     context 'when update succeeds' do
       it 'returns true' do
         user = Fabricate(:user)
-        updater = described_class.new(acting_user, user)
+        updater = UserUpdater.new(acting_user, user)
 
         expect(updater.update).to be_truthy
       end
@@ -61,7 +97,7 @@ describe UserUpdater do
       it 'returns false' do
         user = Fabricate(:user)
         user.stubs(save: false)
-        updater = described_class.new(acting_user, user)
+        updater = UserUpdater.new(acting_user, user)
 
         expect(updater.update).to be_falsey
       end
@@ -73,7 +109,7 @@ describe UserUpdater do
         guardian = stub
         guardian.stubs(:can_grant_title?).with(user).returns(true)
         Guardian.stubs(:new).with(acting_user).returns(guardian)
-        updater = described_class.new(acting_user, user)
+        updater = UserUpdater.new(acting_user, user)
 
         updater.update(title: 'Minion')
 
@@ -125,7 +161,7 @@ describe UserUpdater do
         updater = described_class.new(acting_user, user)
 
         updater.update(website: 'example.com', custom_fields: '')
-        user.reload.custom_fields.should == {'import_username' => 'my_old_username'}
+        expect(user.reload.custom_fields).to eq({'import_username' => 'my_old_username'})
       end
     end
   end

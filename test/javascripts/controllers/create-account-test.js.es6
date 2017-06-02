@@ -28,19 +28,19 @@ test('passwordValidation', function() {
 
   var controller = subject();
   controller.set('passwordRequired', true);
-  controller.set('accountEmail',      'pork@chops.com');
-  controller.set('accountUsername',   'porkchops');
+  controller.set('accountEmail', 'pork@chops.com');
+  controller.set('accountUsername', 'porkchops');
   controller.set('prefilledUsername', 'porkchops');
 
-  controller.set('accountPassword',   'b4fcdae11f9167');
+  controller.set('accountPassword', 'b4fcdae11f9167');
   equal(controller.get('passwordValidation.ok'), true, 'Password is ok');
   equal(controller.get('passwordValidation.reason'), I18n.t('user.password.ok'), 'Password is valid');
 
   var testInvalidPassword = function(password, expectedReason) {
-    var controller = subject();
-    controller.set('accountPassword', password);
-    equal(controller.get('passwordValidation.failed'), true, 'password should be invalid: ' + password);
-    equal(controller.get('passwordValidation.reason'), expectedReason, 'password validation reason: ' + password + ', ' + expectedReason);
+    var c = subject();
+    c.set('accountPassword', password);
+    equal(c.get('passwordValidation.failed'), true, 'password should be invalid: ' + password);
+    equal(c.get('passwordValidation.reason'), expectedReason, 'password validation reason: ' + password + ', ' + expectedReason);
   };
 
   testInvalidPassword('', undefined);

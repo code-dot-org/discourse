@@ -1,7 +1,8 @@
-import Presence from 'discourse/mixins/presence';
+import { exportEntity } from 'discourse/lib/export-csv';
 import { outputExportResult } from 'discourse/lib/export-result';
+import StaffActionLog from 'admin/models/staff-action-log';
 
-export default Ember.ArrayController.extend(Presence, {
+export default Ember.ArrayController.extend({
   loading: false,
   filters: null,
 
@@ -36,7 +37,7 @@ export default Ember.ArrayController.extend(Presence, {
     });
     this.set('filterCount', count);
 
-    Discourse.StaffActionLog.findAll(params).then(function(result) {
+    StaffActionLog.findAll(params).then(function(result) {
       self.set('model', result);
     }).finally(function() {
       self.set('loading', false);
@@ -93,7 +94,7 @@ export default Ember.ArrayController.extend(Presence, {
     },
 
     exportStaffActionLogs: function() {
-      Discourse.ExportCsv.exportStaffActionLogs().then(outputExportResult);
+      exportEntity('staff_action').then(outputExportResult);
     }
   }
 });

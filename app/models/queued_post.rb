@@ -7,6 +7,14 @@ class QueuedPost < ActiveRecord::Base
   belongs_to :approved_by, class_name: "User"
   belongs_to :rejected_by, class_name: "User"
 
+  def create_pending_action
+    UserAction.log_action!(action_type: UserAction::PENDING,
+                           user_id: user_id,
+                           acting_user_id: user_id,
+                           target_topic_id: topic_id,
+                           queued_post_id: id)
+  end
+
   def self.states
     @states ||= Enum.new(:new, :approved, :rejected)
   end
@@ -20,8 +28,12 @@ class QueuedPost < ActiveRecord::Base
     where(queue: visible_queues.to_a)
   end
 
+  def self.new_posts
+    where(state: states[:new])
+  end
+
   def self.new_count
-    visible.where(state: states[:new]).count
+    new_posts.visible.count
   end
 
   def visible?
@@ -35,6 +47,7 @@ class QueuedPost < ActiveRecord::Base
 
   def reject!(rejected_by)
     change_to!(:rejected, rejected_by)
+    DiscourseEvent.trigger(:rejected_post, self)
   end
 
   def create_options
@@ -51,9 +64,18 @@ class QueuedPost < ActiveRecord::Base
     QueuedPost.transaction do
       change_to!(:approved, approved_by)
 
+      UserBlocker.unblock(user, approved_by) if user.blocked?
+
       creator = PostCreator.new(user, create_options.merge(skip_validations: true))
       created_post = creator.create
+
+      unless created_post && creator.errors.blank?
+        raise StandardError.new(creator.errors.full_messages.join(" "))
+      end
+
     end
+
+    DiscourseEvent.trigger(:approved_post, self)
     created_post
   end
 
@@ -72,6 +94,10 @@ class QueuedPost < ActiveRecord::Base
       row_count = QueuedPost.where('id = ? AND state <> ?', id, state_val).update_all(updates)
       raise InvalidStateTransition.new if row_count == 0
 
+      if [:rejected, :approved].include?(state)
+        UserAction.where(queued_post_id: id).destroy_all
+      end
+
       # Update the record in memory too, and clear the dirty flag
       updates.each {|k, v| send("#{k}=", v) }
       changes_applied
@@ -80,3 +106,27 @@ class QueuedPost < ActiveRecord::Base
     end
 
 end
+
+# == Schema Information
+#
+# Table name: queued_posts
+#
+#  id             :integer          not null, primary key
+#  queue          :string           not null
+#  state          :integer          not null
+#  user_id        :integer          not null
+#  raw            :text             not null
+#  post_options   :json             not null
+#  topic_id       :integer
+#  approved_by_id :integer
+#  approved_at    :datetime
+#  rejected_by_id :integer
+#  rejected_at    :datetime
+#  created_at     :datetime
+#  updated_at     :datetime
+#
+# Indexes
+#
+#  by_queue_status        (queue,state,created_at)
+#  by_queue_status_topic  (topic_id,queue,state,created_at)
+#

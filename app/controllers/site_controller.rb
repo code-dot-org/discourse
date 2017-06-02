@@ -1,6 +1,8 @@
 require_dependency 'site_serializer'
 
 class SiteController < ApplicationController
+  layout false
+  skip_before_filter :preload_json, :check_xhr
 
   def site
     render json: Site.json_for(guardian)
@@ -21,5 +23,4 @@ class SiteController < ApplicationController
   def emoji
     render json: custom_emoji
   end
-
 end

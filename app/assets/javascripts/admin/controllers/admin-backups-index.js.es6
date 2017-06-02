@@ -1,20 +1,19 @@
+import { ajax } from 'discourse/lib/ajax';
 export default Ember.ArrayController.extend({
   needs: ["adminBackups"],
-  status: Em.computed.alias("controllers.adminBackups"),
-  isOperationRunning: Em.computed.alias("status.isOperationRunning"),
-  restoreDisabled: Em.computed.alias("status.restoreDisabled"),
+  status: Ember.computed.alias("controllers.adminBackups"),
 
   uploadLabel: function() { return I18n.t("admin.backups.upload.label"); }.property(),
 
   restoreTitle: function() {
-    if (!this.get('status.allowRestore')) {
+    if (!this.get('status.model.allowRestore')) {
       return "admin.backups.operations.restore.is_disabled";
-    } else if (this.get("status.isOperationRunning")) {
+    } else if (this.get("status.model.isOperationRunning")) {
       return "admin.backups.operations.is_running";
     } else {
       return "admin.backups.operations.restore.title";
     }
-  }.property("status.{allowRestore,isOperationRunning}"),
+  }.property("status.model.{allowRestore,isOperationRunning}"),
 
   actions: {
 
@@ -41,7 +40,7 @@ export default Ember.ArrayController.extend({
 
   _toggleReadOnlyMode(enable) {
     var site = this.site;
-    Discourse.ajax("/admin/backups/readonly", {
+    ajax("/admin/backups/readonly", {
       type: "PUT",
       data: { enable: enable }
     }).then(function() {

@@ -1,15 +1,17 @@
-import ObjectController from 'discourse/controllers/object';
+import { ajax } from 'discourse/lib/ajax';
 import CanCheckEmails from 'discourse/mixins/can-check-emails';
+import { propertyNotEqual, setting } from 'discourse/lib/computed';
 
-export default ObjectController.extend(CanCheckEmails, {
+export default Ember.Controller.extend(CanCheckEmails, {
   editingTitle: false,
   originalPrimaryGroupId: null,
   availableGroups: null,
+  userTitleValue: null,
 
-  showApproval: Discourse.computed.setting('must_approve_users'),
-  showBadges: Discourse.computed.setting('enable_badges'),
+  showApproval: setting('must_approve_users'),
+  showBadges: setting('enable_badges'),
 
-  primaryGroupDirty: Discourse.computed.propertyNotEqual('originalPrimaryGroupId', 'primary_group_id'),
+  primaryGroupDirty: propertyNotEqual('originalPrimaryGroupId', 'model.primary_group_id'),
 
   automaticGroups: function() {
     return this.get("model.automaticGroups").map((g) => g.name).join(", ");
@@ -17,7 +19,7 @@ export default ObjectController.extend(CanCheckEmails, {
 
   userFields: function() {
     const siteUserFields = this.site.get('user_fields'),
-          userFields = this.get('user_fields');
+          userFields = this.get('model.user_fields');
 
     if (!Ember.isEmpty(siteUserFields)) {
       return siteUserFields.map(function(uf) {
@@ -26,23 +28,25 @@ export default ObjectController.extend(CanCheckEmails, {
       });
     }
     return [];
-  }.property('user_fields.@each'),
+  }.property('model.user_fields.[]'),
 
   actions: {
     toggleTitleEdit() {
+      this.set('userTitleValue', this.get('model.title'));
       this.toggleProperty('editingTitle');
     },
 
     saveTitle() {
       const self = this;
 
-      return Discourse.ajax("/users/" + this.get('username').toLowerCase(), {
-        data: {title: this.get('title')},
+      return ajax("/users/" + this.get('model.username').toLowerCase(), {
+        data: {title: this.get('userTitleValue')},
         type: 'PUT'
       }).catch(function(e) {
         bootbox.alert(I18n.t("generic_error_with_reason", {error: "http: " + e.status + " - " + e.body}));
       }).finally(function() {
-        self.send('toggleTitleEdit');
+        self.set('model.title', self.get('userTitleValue'));
+        self.toggleProperty('editingTitle');
       });
     },
 
@@ -65,18 +69,18 @@ export default ObjectController.extend(CanCheckEmails, {
     savePrimaryGroup() {
       const self = this;
 
-      return Discourse.ajax("/admin/users/" + this.get('id') + "/primary_group", {
+      return ajax("/admin/users/" + this.get('model.id') + "/primary_group", {
         type: 'PUT',
-        data: {primary_group_id: this.get('primary_group_id')}
+        data: {primary_group_id: this.get('model.primary_group_id')}
       }).then(function () {
-        self.set('originalPrimaryGroupId', self.get('primary_group_id'));
+        self.set('originalPrimaryGroupId', self.get('model.primary_group_id'));
       }).catch(function() {
         bootbox.alert(I18n.t('generic_error'));
       });
     },
 
     resetPrimaryGroup() {
-      this.set('primary_group_id', this.get('originalPrimaryGroupId'));
+      this.set('model.primary_group_id', this.get('originalPrimaryGroupId'));
     },
 
     regenerateApiKey() {

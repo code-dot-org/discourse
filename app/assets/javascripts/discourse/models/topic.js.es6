@@ -1,6 +1,60 @@
+import { ajax } from 'discourse/lib/ajax';
+import { flushMap } from 'discourse/models/store';
 import RestModel from 'discourse/models/rest';
+import { propertyEqual } from 'discourse/lib/computed';
+import { longDate } from 'discourse/lib/formatter';
+import computed from 'ember-addons/ember-computed-decorators';
+import ActionSummary from 'discourse/models/action-summary';
+import { popupAjaxError } from 'discourse/lib/ajax-error';
+import { censor } from 'pretty-text/censored-words';
+import { emojiUnescape } from 'discourse/lib/text';
+import PreloadStore from 'preload-store';
+
+export function loadTopicView(topic, args) {
+  const topicId = topic.get('id');
+  const data = _.merge({}, args);
+  const url = Discourse.getURL("/t/") + topicId;
+  const jsonUrl = (data.nearPost ? `${url}/${data.nearPost}` : url) + '.json';
+
+  delete data.nearPost;
+  delete data.__type;
+  delete data.store;
+
+  return PreloadStore.getAndRemove(`topic_${topicId}`, () => {
+    return ajax(jsonUrl, {data});
+  }).then(json => {
+    topic.updateFromJson(json);
+    return json;
+  });
+}
 
 const Topic = RestModel.extend({
+  message: null,
+  errorLoading: false,
+
+  @computed('posters.firstObject')
+  creator(poster){
+    return poster && poster.user;
+  },
+
+  @computed('posters.[]')
+  lastPoster(posters) {
+    var user;
+    if (posters && posters.length > 0) {
+      const latest = posters.filter(p => p.extras && p.extras.indexOf("latest") >= 0)[0];
+      user = latest && latest.user;
+    }
+    return user || this.get("creator");
+  },
+
+  @computed('fancy_title')
+  fancyTitle(title) {
+    // TODO: `siteSettings` should always be present, but there are places in the code
+    // that call Discourse.Topic.create instead of using the store. When the store is
+    // used, remove this.
+    const siteSettings = this.siteSettings || Discourse.SiteSettings;
+    return censor(emojiUnescape(title || ""), siteSettings.censored_words);
+  },
 
   // returns createdAt if there's no bumped date
   bumpedAt: function() {
@@ -13,8 +67,8 @@ const Topic = RestModel.extend({
   }.property('bumped_at', 'createdAt'),
 
   bumpedAtTitle: function() {
-    return I18n.t('first_post') + ": " + Discourse.Formatter.longDate(this.get('createdAt')) + "\n" +
-           I18n.t('last_post') + ": " + Discourse.Formatter.longDate(this.get('bumpedAt'));
+    return I18n.t('first_post') + ": " + longDate(this.get('createdAt')) + "\n" +
+           I18n.t('last_post') + ": " + longDate(this.get('bumpedAt'));
   }.property('bumpedAt'),
 
   createdAt: function() {
@@ -24,6 +78,24 @@ const Topic = RestModel.extend({
   postStream: function() {
     return this.store.createRecord('postStream', {id: this.get('id'), topic: this});
   }.property(),
+
+  @computed('tags')
+  visibleListTags(tags) {
+    if (!tags || !Discourse.SiteSettings.suppress_overlapping_tags_in_list) {
+      return tags;
+    }
+
+    const title = this.get('title');
+    const newTags = [];
+
+    tags.forEach(function(tag){
+      if (title.toLowerCase().indexOf(tag) === -1 || Discourse.SiteSettings.staff_tags.indexOf(tag) !== -1) {
+        newTags.push(tag);
+      }
+    });
+
+    return newTags;
+  },
 
   replyCount: function() {
     return this.get('posts_count') - 1;
@@ -63,7 +135,7 @@ const Topic = RestModel.extend({
   }.property('url'),
 
   url: function() {
-    let slug = this.get('slug');
+    let slug = this.get('slug') || '';
     if (slug.trim().length === 0) {
       slug = "topic";
     }
@@ -147,57 +219,67 @@ const Topic = RestModel.extend({
     this.saveStatus(property, !!this.get(property));
   },
 
-  saveStatus(property, value) {
-    if (property === 'closed' && value === true) {
-      this.set('details.auto_close_at', null);
+  saveStatus(property, value, until) {
+    if (property === 'closed') {
+      this.incrementProperty('posts_count');
+
+      if (value === true) {
+        this.set('details.auto_close_at', null);
+      }
     }
-    return Discourse.ajax(this.get('url') + "/status", {
+    return ajax(this.get('url') + "/status", {
       type: 'PUT',
-      data: { status: property, enabled: !!value }
+      data: {
+        status: property,
+        enabled: !!value,
+        until: until
+      }
     });
   },
 
   makeBanner() {
     const self = this;
-    return Discourse.ajax('/t/' + this.get('id') + '/make-banner', { type: 'PUT' })
+    return ajax('/t/' + this.get('id') + '/make-banner', { type: 'PUT' })
            .then(function () { self.set('archetype', 'banner'); });
   },
 
   removeBanner() {
     const self = this;
-    return Discourse.ajax('/t/' + this.get('id') + '/remove-banner', { type: 'PUT' })
+    return ajax('/t/' + this.get('id') + '/remove-banner', { type: 'PUT' })
            .then(function () { self.set('archetype', 'regular'); });
   },
 
-  estimatedReadingTime: function() {
-    const wordCount = this.get('word_count');
-    if (!wordCount) return;
-
-    // Avg for 500 words per minute when you account for skimming
-    return Math.floor(wordCount / 500.0);
-  }.property('word_count'),
-
   toggleBookmark() {
-    if (this.get("bookmarking")) { return; }
+    if (this.get('bookmarking')) { return Ember.RSVP.Promise.resolve(); }
     this.set("bookmarking", true);
 
-    const self = this,
-          stream = this.get('postStream'),
-          posts = Em.get(stream, 'posts'),
-          firstPost = posts && posts[0] && posts[0].get('post_number') === 1 && posts[0],
-          bookmark = !this.get('bookmarked'),
-          path = bookmark ? '/bookmark' : '/remove_bookmarks';
+    const stream = this.get('postStream');
+    const posts = Em.get(stream, 'posts');
+    const firstPost = posts && posts[0] && posts[0].get('post_number') === 1 && posts[0];
+    const bookmark = !this.get('bookmarked');
+    const path = bookmark ? '/bookmark' : '/remove_bookmarks';
 
-    const toggleBookmarkOnServer = function() {
-      return Discourse.ajax('/t/' + self.get('id') + path, {
-        type: 'PUT',
-      }).then(function() {
-        self.toggleProperty('bookmarked');
-        if (bookmark && firstPost) { firstPost.set('bookmarked', true); }
-        if (!bookmark && posts) {
-          posts.forEach((post) => post.get('bookmarked') && post.set('bookmarked', false));
+    const toggleBookmarkOnServer = () => {
+      return ajax(`/t/${this.get('id')}${path}`, { type: 'PUT' }).then(() => {
+        this.toggleProperty('bookmarked');
+        if (bookmark && firstPost) {
+          firstPost.set('bookmarked', true);
+          return [firstPost.id];
         }
-      }).catch(function(error) {
+        if (!bookmark && posts) {
+
+          const updated = [];
+          posts.forEach(post => {
+            if (post.get('bookmarked')) {
+              post.set('bookmarked', false);
+              updated.push(post.get('id'));
+            }
+          });
+          return updated;
+        }
+
+        return [];
+      }).catch(error => {
         let showGenericError = true;
         if (error && error.responseText) {
           try {
@@ -211,34 +293,46 @@ const Topic = RestModel.extend({
         }
 
         throw error;
-      }).finally(function() {
-        self.set("bookmarking", false);
-      });
+      }).finally(() => this.set('bookmarking', false));
     };
 
-    let unbookmarkedPosts = [];
+    const unbookmarkedPosts = [];
     if (!bookmark && posts) {
-      posts.forEach((post) => post.get('bookmarked') && unbookmarkedPosts.push(post));
+      posts.forEach(post => post.get('bookmarked') && unbookmarkedPosts.push(post));
     }
 
-    if (unbookmarkedPosts.length > 1) {
-      return bootbox.confirm(
-        I18n.t("bookmarks.confirm_clear"),
-        I18n.t("no_value"),
-        I18n.t("yes_value"),
-        function (confirmed) {
-          if (confirmed) { return toggleBookmarkOnServer(); }
-        }
-      );
-    } else {
-      return toggleBookmarkOnServer();
-    }
+    return new Ember.RSVP.Promise(resolve => {
+      if (unbookmarkedPosts.length > 1) {
+        bootbox.confirm(
+          I18n.t("bookmarks.confirm_clear"),
+          I18n.t("no_value"),
+          I18n.t("yes_value"),
+          confirmed => confirmed ? toggleBookmarkOnServer().then(resolve) : resolve()
+        );
+      } else {
+        toggleBookmarkOnServer().then(resolve);
+      }
+    });
   },
 
-  createInvite(emailOrUsername, groupNames) {
-    return Discourse.ajax("/t/" + this.get('id') + "/invite", {
+  createGroupInvite(group) {
+    return ajax("/t/" + this.get('id') + "/invite-group", {
       type: 'POST',
-      data: { user: emailOrUsername, group_names: groupNames }
+      data: { group }
+    });
+  },
+
+  createInvite(user, group_names, custom_message) {
+    return ajax("/t/" + this.get('id') + "/invite", {
+      type: 'POST',
+      data: { user, group_names, custom_message }
+    });
+  },
+
+  generateInviteLink: function(email, groupNames, topicId) {
+    return ajax('/invites/link', {
+      type: 'POST',
+      data: {email: email, group_names: groupNames, topic_id: topicId}
     });
   },
 
@@ -250,7 +344,7 @@ const Topic = RestModel.extend({
       'details.can_delete': false,
       'details.can_recover': true
     });
-    return Discourse.ajax("/t/" + this.get('id'), {
+    return ajax("/t/" + this.get('id'), {
       data: { context: window.location.pathname },
       type: 'DELETE'
     });
@@ -264,7 +358,7 @@ const Topic = RestModel.extend({
       'details.can_delete': true,
       'details.can_recover': false
     });
-    return Discourse.ajax("/t/" + this.get('id') + "/recover", { type: 'PUT' });
+    return ajax("/t/" + this.get('id') + "/recover", { type: 'PUT' });
   },
 
   // Update our attributes from a JSON result
@@ -275,11 +369,14 @@ const Topic = RestModel.extend({
     keys.removeObject('details');
     keys.removeObject('post_stream');
 
-    const topic = this;
-    keys.forEach(function (key) {
-      topic.set(key, json[key]);
-    });
+    keys.forEach(key => this.set(key, json[key]));
+  },
 
+  reload() {
+    const self = this;
+    return ajax('/t/' + this.get('id'), { type: 'GET' }).then(function(topic_json) {
+      self.updateFromJson(topic_json);
+    });
   },
 
   isPinnedUncategorized: function() {
@@ -293,7 +390,7 @@ const Topic = RestModel.extend({
     topic.set('pinned', false);
     topic.set('unpinned', true);
 
-    Discourse.ajax("/t/" + this.get('id') + "/clear-pin", {
+    ajax("/t/" + this.get('id') + "/clear-pin", {
       type: 'PUT'
     }).then(null, function() {
       // On error, put the pin back
@@ -317,7 +414,7 @@ const Topic = RestModel.extend({
     topic.set('pinned', true);
     topic.set('unpinned', false);
 
-    Discourse.ajax("/t/" + this.get('id') + "/re-pin", {
+    ajax("/t/" + this.get('id') + "/re-pin", {
       type: 'PUT'
     }).then(null, function() {
       // On error, put the pin back
@@ -326,37 +423,50 @@ const Topic = RestModel.extend({
     });
   },
 
-  // Is the reply to a post directly below it?
-  isReplyDirectlyBelow(post) {
-    const posts = this.get('postStream.posts');
-    const postNumber = post.get('post_number');
-    if (!posts) return;
 
-    const postBelow = posts[posts.indexOf(post) + 1];
-
-    // If the post directly below's reply_to_post_number is our post number or we are quoted,
-    // it's considered directly below.
-    //
-    // TODO: we don't carry information about quoting, this leaves this code fairly fragile
-    //  instead we should start shipping quote meta data with posts, but this will add at least
-    //  1 query to the topics page
-    //
-    return postBelow && (postBelow.get('reply_to_post_number') === postNumber ||
-        postBelow.get('cooked').indexOf('data-post="'+ postNumber + '"') >= 0
-    );
-  },
-
-  excerptNotEmpty: Em.computed.notEmpty('excerpt'),
-  hasExcerpt: Em.computed.and('pinned', 'excerptNotEmpty'),
+  hasExcerpt: Em.computed.notEmpty('excerpt'),
 
   excerptTruncated: function() {
     const e = this.get('excerpt');
     return( e && e.substr(e.length - 8,8) === '&hellip;' );
   }.property('excerpt'),
 
-  readLastPost: Discourse.computed.propertyEqual('last_read_post_number', 'highest_post_number'),
-  canClearPin: Em.computed.and('pinned', 'readLastPost')
+  readLastPost: propertyEqual('last_read_post_number', 'highest_post_number'),
+  canClearPin: Em.computed.and('pinned', 'readLastPost'),
 
+  archiveMessage() {
+    this.set("archiving", true);
+    var promise = ajax(`/t/${this.get('id')}/archive-message`, {type: 'PUT'});
+
+    promise.then((msg)=> {
+      this.set('message_archived', true);
+      if (msg && msg.group_name) {
+        this.set('inboxGroupName', msg.group_name);
+      }
+    }).finally(()=>this.set('archiving', false));
+
+    return promise;
+  },
+
+  moveToInbox() {
+    this.set("archiving", true);
+    var promise = ajax(`/t/${this.get('id')}/move-to-inbox`, {type: 'PUT'});
+
+    promise.then((msg)=> {
+      this.set('message_archived', false);
+      if (msg && msg.group_name) {
+        this.set('inboxGroupName', msg.group_name);
+      }
+    }).finally(()=>this.set('archiving', false));
+
+    return promise;
+  },
+
+  convertTopic(type) {
+    return ajax(`/t/${this.get('id')}/convert-topic/${type}`, {type: 'PUT'}).then(() => {
+      window.location.reload();
+    }).catch(popupAjaxError);
+  }
 });
 
 Topic.reopenClass({
@@ -373,7 +483,7 @@ Topic.reopenClass({
       result.actions_summary = result.actions_summary.map(function(a) {
         a.post = result;
         a.actionType = Discourse.Site.current().postActionTypeById(a.id);
-        const actionSummary = Discourse.ActionSummary.create(a);
+        const actionSummary = ActionSummary.create(a);
         lookup.set(a.actionType.get('name_key'), actionSummary);
         return actionSummary;
       });
@@ -403,7 +513,7 @@ Topic.reopenClass({
       }
     });
 
-    return Discourse.ajax(topic.get('url'), { type: 'PUT', data: props }).then(function(result) {
+    return ajax(topic.get('url'), { type: 'PUT', data: props }).then(function(result) {
       // The title can be cleaned up server side
       props.title = result.basic_topic.title;
       props.fancy_title = result.basic_topic.fancy_title;
@@ -415,16 +525,6 @@ Topic.reopenClass({
     const result = this._super.apply(this, arguments);
     this.createActionSummary(result);
     return result;
-  },
-
-  findSimilarTo(title, body) {
-    return Discourse.ajax("/topics/similar_to", { data: {title: title, raw: body} }).then(function (results) {
-      if (Array.isArray(results)) {
-        return results.map(function(topic) { return Topic.create(topic); });
-      } else {
-        return Ember.A();
-      }
-    });
   },
 
   // Load a topic, but accepts a set of filters
@@ -460,33 +560,11 @@ Topic.reopenClass({
     }
 
     // Check the preload store. If not, load it via JSON
-    return Discourse.ajax(url + ".json", {data: data});
-  },
-
-  mergeTopic(topicId, destinationTopicId) {
-    const promise = Discourse.ajax("/t/" + topicId + "/merge-topic", {
-      type: 'POST',
-      data: {destination_topic_id: destinationTopicId}
-    }).then(function (result) {
-      if (result.success) return result;
-      promise.reject(new Error("error merging topic"));
-    });
-    return promise;
-  },
-
-  movePosts(topicId, opts) {
-    const promise = Discourse.ajax("/t/" + topicId + "/move-posts", {
-      type: 'POST',
-      data: opts
-    }).then(function (result) {
-      if (result.success) return result;
-      promise.reject(new Error("error moving posts topic"));
-    });
-    return promise;
+    return ajax(url + ".json", {data: data});
   },
 
   changeOwners(topicId, opts) {
-    const promise = Discourse.ajax("/t/" + topicId + "/change-owner", {
+    const promise = ajax("/t/" + topicId + "/change-owner", {
       type: 'POST',
       data: opts
     }).then(function (result) {
@@ -496,8 +574,19 @@ Topic.reopenClass({
     return promise;
   },
 
+  changeTimestamp(topicId, timestamp) {
+    const promise = ajax("/t/" + topicId + '/change-timestamp', {
+      type: 'PUT',
+      data: { timestamp: timestamp },
+    }).then(function(result) {
+      if (result.success) return result;
+      promise.reject(new Error("error updating timestamp of topic"));
+    });
+    return promise;
+  },
+
   bulkOperation(topics, operation) {
-    return Discourse.ajax("/topics/bulk", {
+    return ajax("/topics/bulk", {
       type: 'PUT',
       data: {
         topic_ids: topics.map(function(t) { return t.get('id'); }),
@@ -509,19 +598,39 @@ Topic.reopenClass({
   bulkOperationByFilter(filter, operation, categoryId) {
     const data = { filter: filter, operation: operation };
     if (categoryId) data['category_id'] = categoryId;
-    return Discourse.ajax("/topics/bulk", {
+    return ajax("/topics/bulk", {
       type: 'PUT',
       data: data
     });
   },
 
   resetNew() {
-    return Discourse.ajax("/topics/reset-new", {type: 'PUT'});
+    return ajax("/topics/reset-new", {type: 'PUT'});
   },
 
   idForSlug(slug) {
-    return Discourse.ajax("/t/id_for/" + slug);
+    return ajax("/t/id_for/" + slug);
   }
 });
+
+function moveResult(result) {
+  if (result.success) {
+    // We should be hesitant to flush the map but moving ids is one rare case
+    flushMap();
+    return result;
+  }
+  throw "error moving posts topic";
+}
+
+export function movePosts(topicId, data) {
+  return ajax("/t/" + topicId + "/move-posts", { type: 'POST', data }).then(moveResult);
+}
+
+export function mergeTopic(topicId, destinationTopicId) {
+  return ajax("/t/" + topicId + "/merge-topic", {
+    type: 'POST',
+    data: {destination_topic_id: destinationTopicId}
+  }).then(moveResult);
+}
 
 export default Topic;

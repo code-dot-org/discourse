@@ -1,4 +1,5 @@
 require_dependency 'pinned_check'
+require_dependency 'new_post_manager'
 
 class TopicViewSerializer < ApplicationSerializer
   include PostStreamSerializerMixin
@@ -30,7 +31,9 @@ class TopicViewSerializer < ApplicationSerializer
                         :slug,
                         :category_id,
                         :word_count,
-                        :deleted_at
+                        :deleted_at,
+                        :pending_posts_count,
+                        :user_id
 
   attributes :draft,
              :draft_key,
@@ -40,16 +43,20 @@ class TopicViewSerializer < ApplicationSerializer
              :pinned_globally,
              :pinned,    # Is topic pinned and viewer hasn't cleared the pin?
              :pinned_at, # Ignores clear pin
+             :pinned_until,
              :details,
              :highest_post_number,
              :last_read_post_number,
+             :last_read_post_id,
              :deleted_by,
              :has_deleted,
              :actions_summary,
              :expandable_first_post,
              :is_warning,
              :chunk_size,
-             :bookmarked
+             :bookmarked,
+             :message_archived,
+             :tags
 
   # TODO: Split off into proper object / serializer
   def details
@@ -61,15 +68,18 @@ class TopicViewSerializer < ApplicationSerializer
       last_poster: BasicUserSerializer.new(object.topic.last_poster, scope: scope, root: false)
     }
 
-    if object.topic.allowed_users.present?
-      result[:allowed_users] = object.topic.allowed_users.map do |user|
-        BasicUserSerializer.new(user, scope: scope, root: false)
-      end
-    end
+    if object.topic.private_message?
+      allowed_user_ids = Set.new
 
-    if object.topic.allowed_groups.present?
-      result[:allowed_groups] = object.topic.allowed_groups.map do |ag|
-        BasicGroupSerializer.new(ag, scope: scope, root: false)
+      result[:allowed_groups] = object.topic.allowed_groups.map do |group|
+        allowed_user_ids.merge(GroupUser.where(group: group).pluck(:user_id))
+        BasicGroupSerializer.new(group, scope: scope, root: false)
+      end
+
+      result[:allowed_users] = object.topic.allowed_users.select do |user|
+        !allowed_user_ids.include?(user.id)
+      end.map do |user|
+        BasicUserSerializer.new(user, scope: scope, root: false)
       end
     end
 
@@ -79,10 +89,9 @@ class TopicViewSerializer < ApplicationSerializer
       end
     end
 
-
     if object.suggested_topics.try(:topics).present?
-      result[:suggested_topics] = object.suggested_topics.topics.map do |user|
-        SuggestedTopicSerializer.new(user, scope: scope, root: false)
+      result[:suggested_topics] = object.suggested_topics.topics.map do |topic|
+        SuggestedTopicSerializer.new(topic, scope: scope, root: false)
       end
     end
 
@@ -122,6 +131,7 @@ class TopicViewSerializer < ApplicationSerializer
   def include_is_warning?
     is_warning
   end
+
   def draft
     object.draft
   end
@@ -132,6 +142,14 @@ class TopicViewSerializer < ApplicationSerializer
 
   def draft_sequence
     object.draft_sequence
+  end
+
+  def include_message_archived?
+    object.topic.private_message?
+  end
+
+  def message_archived
+    object.topic.message_archived?(scope.user)
   end
 
   def deleted_by
@@ -147,8 +165,16 @@ class TopicViewSerializer < ApplicationSerializer
     object.highest_post_number
   end
 
+  def last_read_post_id
+    return nil unless object.filtered_post_stream && last_read_post_number
+    object.filtered_post_stream.each do |ps|
+      return ps[0] if ps[1] === last_read_post_number
+    end
+  end
+  alias_method :include_last_read_post_id?, :has_topic_user?
+
   def last_read_post_number
-    object.topic_user.last_read_post_number
+    @last_read_post_number ||= object.topic_user.last_read_post_number
   end
   alias_method :include_last_read_post_number?, :has_topic_user?
 
@@ -171,6 +197,10 @@ class TopicViewSerializer < ApplicationSerializer
 
   def pinned_at
     object.topic.pinned_at
+  end
+
+  def pinned_until
+    object.topic.pinned_until
   end
 
   def actions_summary
@@ -204,6 +234,17 @@ class TopicViewSerializer < ApplicationSerializer
 
   def bookmarked
     object.topic_user.try(:bookmarked)
+  end
+
+  def include_pending_posts_count?
+    scope.is_staff? && NewPostManager.queue_enabled?
+  end
+
+  def include_tags?
+    SiteSetting.tagging_enabled
+  end
+  def tags
+    object.topic.tags.map(&:name)
   end
 
 end

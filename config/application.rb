@@ -45,6 +45,11 @@ module Discourse
       end
     end
 
+    # Disable so this is only run manually
+    # we may want to change this later on
+    # issue is image_optim crashes on missing dependencies
+    config.assets.image_optim = false
+
     # Custom directories with classes and modules you want to be autoloadable.
     config.autoload_paths += Dir["#{config.root}/app/serializers"]
     config.autoload_paths += Dir["#{config.root}/lib/validators/"]
@@ -64,12 +69,10 @@ module Discourse
       path =~ /assets\/images/ && !%w(.js .css).include?(File.extname(filename))
     end]
 
-    config.assets.precompile += ['vendor.js', 'common.css', 'desktop.css', 'mobile.css', 'admin.js', 'admin.css', 'shiny/shiny.css', 'preload_store.js', 'browser-update.js', 'embed.css', 'break_string.js']
-
-    # Precompile all defer
-    Dir.glob("#{config.root}/app/assets/javascripts/defer/*.js").each do |file|
-      config.assets.precompile << "defer/#{File.basename(file)}"
-    end
+    config.assets.precompile += ['vendor.js', 'common.css', 'desktop.css', 'mobile.css',
+                                 'admin.js', 'admin.css', 'shiny/shiny.css', 'preload-store.js.es6',
+                                 'browser-update.js', 'embed.css', 'break_string.js', 'ember_jquery.js',
+                                 'pretty-text-bundle.js']
 
     # Precompile all available locales
     Dir.glob("#{config.root}/app/assets/javascripts/locales/*.js.erb").each do |file|
@@ -117,10 +120,7 @@ module Discourse
     # see: http://stackoverflow.com/questions/11894180/how-does-one-correctly-add-custom-sql-dml-in-migrations/11894420#11894420
     config.active_record.schema_format = :sql
 
-    if rails_master?
-      # Opt-into the default behavior in Rails 5
-      # config.active_record.raise_in_transactional_callbacks = true
-    end
+    config.active_record.raise_in_transactional_callbacks = true
 
     # per https://www.owasp.org/index.php/Password_Storage_Cheat_Sheet
     config.pbkdf2_iterations = 64000
@@ -140,9 +140,11 @@ module Discourse
 
     # Our templates shouldn't start with 'discourse/templates'
     config.handlebars.templates_root = 'discourse/templates'
+    config.handlebars.raw_template_namespace = "Ember.TEMPLATES"
 
     require 'discourse_redis'
     require 'logster/redis_store'
+    require 'freedom_patches/redis'
     # Use redis for our cache
     config.cache_store = DiscourseRedis.new_redis_store
     $redis = DiscourseRedis.new

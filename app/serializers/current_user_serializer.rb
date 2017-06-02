@@ -23,25 +23,60 @@ class CurrentUserSerializer < BasicUserSerializer
              :no_password,
              :can_delete_account,
              :should_be_redirected_to_top,
-             :redirected_to_top_reason,
+             :redirected_to_top,
              :disable_jump_reply,
              :custom_fields,
              :muted_category_ids,
              :dismissed_banner_key,
              :is_anonymous,
              :post_queue_new_count,
-             :show_queued_posts
+             :show_queued_posts,
+             :read_faq,
+             :automatically_unpin_topics,
+             :mailing_list_mode
 
   def include_site_flagged_posts_count?
     object.staff?
   end
 
+  def read_faq
+    object.user_stat.read_faq?
+  end
+
   def topic_count
-    object.topics.count
+    object.user_stat.topic_count
   end
 
   def reply_count
     object.user_stat.topic_reply_count
+  end
+
+  def enable_quoting
+    object.user_option.enable_quoting
+  end
+
+  def disable_jump_reply
+    object.user_option.disable_jump_reply
+  end
+
+  def external_links_in_new_tab
+    object.user_option.external_links_in_new_tab
+  end
+
+  def dynamic_favicon
+    object.user_option.dynamic_favicon
+  end
+
+  def automatically_unpin_topics
+    object.user_option.automatically_unpin_topics
+  end
+
+  def should_be_redirected_to_top
+    object.user_option.should_be_redirected_to_top
+  end
+
+  def redirected_to_top
+    object.user_option.redirected_to_top
   end
 
   def site_flagged_posts_count
@@ -76,8 +111,8 @@ class CurrentUserSerializer < BasicUserSerializer
     true
   end
 
-  def include_redirected_to_top_reason?
-    object.redirected_to_top_reason.present?
+  def include_redirected_to_top?
+    object.user_option.redirected_to_top.present?
   end
 
   def custom_fields
@@ -124,7 +159,11 @@ class CurrentUserSerializer < BasicUserSerializer
   end
 
   def include_show_queued_posts?
-    object.staff? && NewPostManager.queue_enabled?
+    object.staff? && (NewPostManager.queue_enabled? || QueuedPost.new_count > 0)
+  end
+
+  def mailing_list_mode
+    object.user_option.mailing_list_mode
   end
 
 end

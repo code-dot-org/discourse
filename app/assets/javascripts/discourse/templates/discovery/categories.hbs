@@ -1,5 +1,5 @@
-{{#if categories}}
-  <div class='contents'>
+{{#if model.categories}}
+  {{#discovery-categories refresh="refresh"}}
     <table class='topic-list categories'>
       <thead>
         <tr>
@@ -9,45 +9,31 @@
         </tr>
       </thead>
       <tbody>
-        {{#each c in categories}}
-          <tr data-category_id='{{unbound c.id}}' {{bind-attr class="c.description_excerpt:has-description:no-description c.logo_url:has-logo:no-logo c.category_collapse_name"}}>
-            <td class='category' style="border-color: #{{unbound c.color}}">
+        {{#each model.categories as |c|}}
+          <tr data-category_id='{{unbound c.id}}' class="{{if c.description_excerpt 'has-description' 'no-description'}} {{if c.logo_url 'has-logo' 'no-logo'}} {{c.category_collapse_name}}">
+            <td class='category' style={{border-color c.color}}>
               <div>
-                <div class="pull-left">
-                  {{category-title-link category=c}}
-                  {{#unless c.logo_url}}
-                    {{category-unread category=c}}
-                  {{/unless}}
-                </div>
-                <div class="clearfix"></div>
-              </div>
-              {{#if c.description_excerpt}}
+                {{category-title-link category=c}}
+                {{category-unread category=c}}
+                {{#if c.logo_url}}
+                  {{category-logo-link category=c}}
+                {{/if}}
+
                 <div class="category-description">
                   {{{c.description_excerpt}}}
                 </div>
-
-                {{#if c.logo_url}}
-                  {{category-unread category=c}}
-                {{/if}}
-              {{/if}}
-              {{#if c.category_expanding_class}}
-                  <button class="btn"
-                    {{action "expand" c.category_expanding_class}}
-                    {{bind-attr id="c.category_expanding_class"}}
-                  >
-                    Expand units for this course
-                  </button>
-              {{/if}}
+                <div class="clearfix"></div>
+              </div>
             </td>
-            <td {{bind-attr class="c.archived :latest"}}>
-              {{#each f in c.featuredTopics}}
+            <td class="{{if c.archived 'archived'}} latest">
+              {{#each c.featuredTopics as |f|}}
                 {{featured-topic topic=f latestTopicOnly=latestTopicOnly action="showTopicEntrance"}}
               {{/each}}
             </td>
-            <td class='stats' {{bind-attr title="c.topicStatsTitle"}}>
+            <td class='stats' title={{c.topicStatsTitle}}>
               <table class="categoryStats">
                 <tbody>
-                {{#each s in c.topicCountStats}}
+                {{#each c.topicCountStats as |s|}}
                   <tr>
                     <td class="value">{{s.value}}</td>
                     <td class="unit"> / {{s.unit}}</td>
@@ -60,6 +46,6 @@
         {{/each}}
       </tbody>
     </table>
-  </div>
+  {{/discovery-categories}}
   <footer class='topic-list-bottom'></footer>
 {{/if}}
