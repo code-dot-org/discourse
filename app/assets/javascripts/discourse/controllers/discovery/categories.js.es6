@@ -27,6 +27,10 @@ export default DiscoveryController.extend({
         self.set('model', list);
         self.send('loadingComplete');
       });
+    },
+
+    expand(category_expanding_class) {
+      $('.' + category_expanding_class).show();
     }
   },
 

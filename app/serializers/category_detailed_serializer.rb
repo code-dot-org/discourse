@@ -11,8 +11,8 @@ class CategoryDetailedSerializer < BasicCategorySerializer
              :posts_month,
              :posts_year,
              :description_excerpt,
-             :is_collapsed_category,
-             :can_expand_categories,
+             :category_collapse_name,
+             :category_expanding_class,
              :is_uncategorized,
              :subcategory_ids,
              :should_default_to_show?
@@ -36,12 +36,19 @@ class CategoryDetailedSerializer < BasicCategorySerializer
     PrettyText.excerpt(description,300) if description
   end
 
-  def is_collapsed_category
-    name.starts_with? 'CSP '
+  # Band-aid fix for category collapsing. CSD and CSP units are their own categories 
+  def category_collapse_name
+    if slug =~ /csp\d/
+      'csp-collapsed'
+    elsif slug =~ /csd\d/
+      'csd-collapsed'
+    end
   end
 
-  def can_expand_categories
-    name == 'CSP'
+  def category_expanding_class
+    if slug == 'csp' || slug == 'csd'
+      "#{slug}-collapsed"
+    end
   end
 
   def include_subcategory_ids?
