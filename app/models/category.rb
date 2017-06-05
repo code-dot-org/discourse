@@ -480,7 +480,6 @@ SQL
     DiscourseStylesheets.cache.clear
   end
 
-
   def self.find_by_slug(category_slug, parent_category_slug=nil)
     if parent_category_slug
       parent_category_id = self.where(slug: parent_category_slug, parent_category_id: nil).pluck(:id).first
