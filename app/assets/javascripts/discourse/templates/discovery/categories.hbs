@@ -10,7 +10,7 @@
       </thead>
       <tbody>
         {{#each model.categories as |c|}}
-          <tr data-category_id='{{unbound c.id}}' class="{{if c.description_excerpt 'has-description' 'no-description'}} {{if c.logo_url 'has-logo' 'no-logo'}}">
+          <tr data-category_id='{{unbound c.id}}' class="{{if c.description_excerpt 'has-description' 'no-description'}} {{if c.logo_url 'has-logo' 'no-logo'}} {{c.category_collapse_name}}">
             <td class='category' style={{border-color c.color}}>
               <div>
                 {{category-title-link category=c}}
@@ -22,16 +22,16 @@
                 <div class="category-description">
                   {{{c.description_excerpt}}}
                 </div>
+                {{#if c.category_expanding_class}}
+                    <button class="btn"
+                      {{action "expand" c.category_expanding_class}}
+                      {{bind-attr id="c.category_expanding_class"}}
+                    >
+                        Expand units for this course
+                    </button>
+                {{/if}}
                 <div class="clearfix"></div>
               </div>
-              {{#if c.subcategories}}
-                <div class='subcategories'>
-                  {{#each c.subcategories as |s|}}
-                    {{category-link s hideParent="true"}}
-                    {{category-unread category=s}}
-                  {{/each}}
-                </div>
-              {{/if}}
             </td>
             <td class="{{if c.archived 'archived'}} latest">
               {{#each c.featuredTopics as |f|}}

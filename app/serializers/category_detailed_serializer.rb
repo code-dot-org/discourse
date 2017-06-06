@@ -11,6 +11,8 @@ class CategoryDetailedSerializer < BasicCategorySerializer
              :posts_month,
              :posts_year,
              :description_excerpt,
+             :category_collapse_name,
+             :category_expanding_class,
              :is_uncategorized,
              :subcategory_ids
 
@@ -31,6 +33,23 @@ class CategoryDetailedSerializer < BasicCategorySerializer
 
   def description_excerpt
     PrettyText.excerpt(description,300) if description
+  end
+
+  # Band-aid fix for category collapsing. CSD and CSP units are their own categories
+  # but we want to hide them to consume less space in the front. So the CSP and CSD
+  # category will get buttons to expand the the other categories
+  def category_collapse_name
+    if slug =~ /csp\d/
+      'csp-collapsed'
+    elsif slug =~ /csd\d/
+      'csd-collapsed'
+    end
+  end
+
+  def category_expanding_class
+    if slug == 'csp' || slug == 'csd'
+      "#{slug}-collapsed"
+    end
   end
 
   def include_subcategory_ids?
