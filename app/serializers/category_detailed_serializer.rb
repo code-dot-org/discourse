@@ -43,11 +43,13 @@ class CategoryDetailedSerializer < BasicCategorySerializer
       'csp-collapsed'
     elsif slug =~ /csd\d/
       'csd-collapsed'
+    elsif slug =~ /csf\w+/
+      'csf-collapsed'
     end
   end
 
   def category_expanding_class
-    if slug == 'csp' || slug == 'csd'
+    if ['csd', 'csp', 'csf'].include? slug
       "#{slug}-collapsed"
     end
   end
