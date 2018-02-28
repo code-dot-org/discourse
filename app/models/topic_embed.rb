@@ -66,7 +66,6 @@ class TopicEmbed < ActiveRecord::Base
     require 'ruby-readability'
 
     original_uri = URI.parse(url)
-    begin
     opts = {
       tags: %w[div p code pre h1 h2 h3 b em i strong a img ul li ol blockquote],
       attributes: %w[href src class],
@@ -108,12 +107,8 @@ class TopicEmbed < ActiveRecord::Base
         end
       end
     end
-    body = doc.to_html
-    rescue
-      title ||= url.ljust(20)
-      body = title.ljust(20)
-    end
-    [title, body]
+
+    [title, doc.to_html]
   end
 
   def self.import_remote(user, url, opts=nil)

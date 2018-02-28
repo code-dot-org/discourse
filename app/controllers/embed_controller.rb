@@ -9,8 +9,7 @@ class EmbedController < ApplicationController
   def comments
     embed_url = params[:embed_url]
     embed_username = params[:discourse_username]
-    # Normalize embed url to http://
-    embed_url = embed_url.gsub(/^https:/,'http:')
+
     topic_id = nil
     if embed_url.present?
       topic_id = TopicEmbed.topic_id_for_embed(embed_url)
