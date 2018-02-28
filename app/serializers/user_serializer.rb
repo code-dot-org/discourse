@@ -65,10 +65,20 @@ class UserSerializer < BasicUserSerializer
              :user_fields,
              :topic_post_count,
              :pending_count,
-             :profile_view_count
+             :profile_view_count,
+             :time_read,
+             :recent_time_read,
+             :primary_group_name,
+             :primary_group_flair_url,
+             :primary_group_flair_bg_color,
+             :primary_group_flair_color,
+             :staged,
+             :second_factor_enabled,
+             :external_id
 
   has_one :invited_by, embed: :object, serializer: BasicUserSerializer
   has_many :groups, embed: :object, serializer: BasicGroupSerializer
+  has_many :group_users, embed: :object, serializer: BasicGroupUserSerializer
   has_many :featured_user_badges, embed: :ids, serializer: UserBadgeSerializer, root: :user_badges
   has_one  :card_badge, embed: :object, serializer: BadgeSerializer
   has_one :user_option, embed: :object, serializer: UserOptionSerializer
@@ -101,13 +111,16 @@ class UserSerializer < BasicUserSerializer
                      :card_image_badge,
                      :card_image_badge_id,
                      :muted_usernames,
-                     :mailing_list_posts_per_day
+                     :mailing_list_posts_per_day,
+                     :can_change_bio,
+                     :user_api_keys
 
   untrusted_attributes :bio_raw,
                        :bio_cooked,
                        :bio_excerpt,
                        :location,
                        :website,
+                       :website_name,
                        :profile_background,
                        :card_background
 
@@ -117,19 +130,46 @@ class UserSerializer < BasicUserSerializer
 
   def mailing_list_posts_per_day
     val = Post.estimate_posts_per_day
-    [val,SiteSetting.max_emails_per_day_per_user].min
+    [val, SiteSetting.max_emails_per_day_per_user].min
   end
 
   def groups
-    if scope.is_admin? || object.id == scope.user.try(:id)
-      object.groups
-    else
-      object.groups.where(visible: true)
-    end
+    object.groups.order(:id)
+      .visible_groups(scope.user)
+  end
+
+  def group_users
+    object.group_users.order(:group_id)
   end
 
   def include_email?
-    object.id && object.id == scope.user.try(:id)
+    (object.id && object.id == scope.user.try(:id)) ||
+      (scope.is_staff? && object.staged?)
+  end
+
+  def include_second_factor_enabled?
+    (object&.id == scope.user&.id) || scope.is_staff?
+  end
+
+  def second_factor_enabled
+    object.totp_enabled?
+  end
+
+  def can_change_bio
+    !(SiteSetting.enable_sso && SiteSetting.sso_overrides_bio)
+  end
+
+  def user_api_keys
+    keys = object.user_api_keys.where(revoked_at: nil).map do |k|
+      {
+        id: k.id,
+        application_name: k.application_name,
+        scopes: k.scopes.map { |s| I18n.t("user_api_key.scopes.#{s}") },
+        created_at: k.created_at
+      }
+    end
+
+    keys.length > 0 ? keys : nil
   end
 
   def card_badge
@@ -151,7 +191,7 @@ class UserSerializer < BasicUserSerializer
   def website_name
     uri = URI(website.to_s) rescue nil
     return if uri.nil? || uri.host.nil?
-    uri.host.sub(/^www\./,'') + uri.path
+    uri.host.sub(/^www\./, '') + uri.path
   end
 
   def include_website_name
@@ -217,19 +257,43 @@ class UserSerializer < BasicUserSerializer
   end
 
   def can_send_private_message_to_user
-    scope.can_send_private_message?(object)
+    scope.can_send_private_message?(object) && scope.current_user != object
   end
 
   def bio_excerpt
-    object.user_profile.bio_excerpt(350 , { keep_newlines: true, keep_emoji_images: true })
+    object.user_profile.bio_excerpt(350 , keep_newlines: true, keep_emoji_images: true)
   end
 
   def include_suspend_reason?
-    object.suspended?
+    scope.can_see_suspension_reason?(object) && object.suspended?
   end
 
   def include_suspended_till?
     object.suspended?
+  end
+
+  def primary_group_name
+    object.primary_group.try(:name)
+  end
+
+  def primary_group_flair_url
+    object.try(:primary_group).try(:flair_url)
+  end
+
+  def primary_group_flair_bg_color
+    object.try(:primary_group).try(:flair_bg_color)
+  end
+
+  def primary_group_flair_color
+    object.try(:primary_group).try(:flair_color)
+  end
+
+  def external_id
+    object&.single_sign_on_record&.external_id
+  end
+
+  def include_external_id?
+    SiteSetting.enable_sso
   end
 
   ###
@@ -322,7 +386,7 @@ class UserSerializer < BasicUserSerializer
   end
 
   def has_title_badges
-    object.badges.where(allow_title: true).count > 0
+    object.badges.where(allow_title: true).exists?
   end
 
   def user_fields
@@ -345,7 +409,7 @@ class UserSerializer < BasicUserSerializer
     end
 
     if fields.present?
-      User.custom_fields_for_ids([object.id], fields)[object.id]
+      User.custom_fields_for_ids([object.id], fields)[object.id] || {}
     else
       {}
     end
@@ -357,6 +421,18 @@ class UserSerializer < BasicUserSerializer
 
   def profile_view_count
     object.user_profile.views
+  end
+
+  def time_read
+    object.user_stat&.time_read
+  end
+
+  def recent_time_read
+    time = object.recent_time_read
+  end
+
+  def include_staged?
+    scope.is_staff?
   end
 
 end

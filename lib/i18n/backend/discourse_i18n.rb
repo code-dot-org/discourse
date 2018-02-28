@@ -1,4 +1,5 @@
 require 'i18n/backend/pluralization'
+require_dependency 'locale_site_setting'
 
 module I18n
   module Backend
@@ -7,9 +8,6 @@ module I18n
       include I18n::Backend::Pluralization
 
       def available_locales
-        # in case you are wondering this is:
-        # Dir.glob( File.join(Rails.root, 'config', 'locales', 'client.*.yml') )
-        #    .map {|x| x.split('.')[-2]}.sort
         LocaleSiteSetting.supported_locales.map(&:to_sym)
       end
 
@@ -27,7 +25,7 @@ module I18n
       end
 
       def fallbacks(locale)
-        [locale, SiteSetting.default_locale.to_sym, :en].uniq.compact
+        I18n.fallbacks[locale]
       end
 
       def exists?(locale, key)
@@ -53,7 +51,8 @@ module I18n
       end
 
       protected
-        def find_results(regexp, results, translations, path=nil)
+
+        def find_results(regexp, results, translations, path = nil)
           return results if translations.blank?
 
           translations.each do |k_sym, v|
@@ -74,10 +73,12 @@ module I18n
         # the original translations before applying our overrides.
         def lookup(locale, key, scope = [], options = {})
           existing_translations = super(locale, key, scope, options)
+          return existing_translations if scope.is_a?(Array) && scope.include?(:models)
 
-          if options[:overrides] && existing_translations
-            if options[:count]
+          overrides = options.dig(:overrides, locale)
 
+          if overrides
+            if existing_translations && options[:count]
               remapped_translations =
                 if existing_translations.is_a?(Hash)
                   Hash[existing_translations.map { |k, v| ["#{key}.#{k}", v] }]
@@ -87,13 +88,13 @@ module I18n
 
               result = {}
 
-              remapped_translations.merge(options[:overrides]).each do |k, v|
+              remapped_translations.merge(overrides).each do |k, v|
                 result[k.split('.').last.to_sym] = v if k != key && k.start_with?(key.to_s)
               end
               return result if result.size > 0
             end
 
-            return options[:overrides][key] if options[:overrides][key]
+            return overrides[key] if overrides[key]
           end
 
           existing_translations

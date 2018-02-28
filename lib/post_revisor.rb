@@ -1,4 +1,5 @@
 require "edit_rate_limiter"
+require 'post_locker'
 
 class PostRevisor
 
@@ -42,7 +43,7 @@ class PostRevisor
 
   attr_reader :category_changed
 
-  def initialize(post, topic=nil)
+  def initialize(post, topic = nil)
     @post = post
     @topic = topic || post.topic
   end
@@ -95,13 +96,23 @@ class PostRevisor
     end
   end
 
+  track_topic_field(:featured_link) do |topic_changes, featured_link|
+    if SiteSetting.topic_featured_link_enabled &&
+       topic_changes.guardian.can_edit_featured_link?(topic_changes.topic.category_id)
+
+      topic_changes.record_change('featured_link', topic_changes.topic.featured_link, featured_link)
+      topic_changes.topic.featured_link = featured_link
+    end
+  end
+
   # AVAILABLE OPTIONS:
   # - revised_at: changes the date of the revision
   # - force_new_version: bypass ninja-edit window
   # - bypass_rate_limiter:
   # - bypass_bump: do not bump the topic, even if last post
   # - skip_validations: ask ActiveRecord to skip validations
-  def revise!(editor, fields, opts={})
+  # - skip_revision: do not create a new PostRevision record
+  def revise!(editor, fields, opts = {})
     @editor = editor
     @fields = fields.with_indifferent_access
     @opts = opts
@@ -134,9 +145,13 @@ class PostRevisor
     @validate_topic = @opts[:validate_topic] if @opts.has_key?(:validate_topic)
     @validate_topic = !@opts[:validate_topic] if @opts.has_key?(:skip_validations)
 
+    @skip_revision = false
+    @skip_revision = @opts[:skip_revision] if @opts.has_key?(:skip_revision)
+
     Post.transaction do
       revise_post
 
+      yield if block_given?
       # TODO: these callbacks are being called in a transaction
       # it is kind of odd, because the callback is called "before_edit"
       # but the post is already edited at this point
@@ -147,6 +162,13 @@ class PostRevisor
 
       revise_topic
       advance_draft_sequence
+    end
+
+    # Lock the post by default if the appropriate setting is true
+    if SiteSetting.staff_edit_locks_post? &&
+        @editor.staff? &&
+        !@post.user.staff?
+      PostLocker.new(@post, @editor).lock
     end
 
     # WARNING: do not pull this into the transaction
@@ -182,7 +204,7 @@ class PostRevisor
   end
 
   def topic_changed?
-    PostRevisor.tracked_topic_fields.keys.any? {|f| @fields.has_key?(f)}
+    PostRevisor.tracked_topic_fields.keys.any? { |f| @fields.has_key?(f) }
   end
 
   def revise_post
@@ -190,6 +212,7 @@ class PostRevisor
   end
 
   def should_create_new_version?
+    return false if @skip_revision
     edited_by_another_user? || !ninja_edit? || owner_changed? || force_new_version?
   end
 
@@ -234,18 +257,18 @@ class PostRevisor
       prev_owner = User.find(@post.user_id)
       new_owner = User.find(@fields["user_id"])
 
-      # UserActionObserver will create new UserAction records for the new owner
+      # UserActionCreator will create new UserAction records for the new owner
 
       UserAction.where(target_post_id: @post.id)
-                .where(user_id: prev_owner.id)
-                .where(action_type: USER_ACTIONS_TO_REMOVE)
-                .destroy_all
+        .where(user_id: prev_owner.id)
+        .where(action_type: USER_ACTIONS_TO_REMOVE)
+        .destroy_all
 
       if @post.post_number == 1
         UserAction.where(target_topic_id: @post.topic_id)
-                  .where(user_id: prev_owner.id)
-                  .where(action_type: UserAction::NEW_TOPIC)
-                  .destroy_all
+          .where(user_id: prev_owner.id)
+          .where(action_type: UserAction::NEW_TOPIC)
+          .destroy_all
       end
     end
 
@@ -267,26 +290,34 @@ class PostRevisor
     # post owner changed
     if prev_owner && new_owner && prev_owner != new_owner
       likes = UserAction.where(target_post_id: @post.id)
-                        .where(user_id: prev_owner.id)
-                        .where(action_type: UserAction::WAS_LIKED)
-                        .update_all(user_id: new_owner.id)
+        .where(user_id: prev_owner.id)
+        .where(action_type: UserAction::WAS_LIKED)
+        .update_all(user_id: new_owner.id)
 
-      prev_owner.user_stat.post_count -= 1
-      prev_owner.user_stat.topic_count -= 1 if @post.is_first_post?
-      prev_owner.user_stat.likes_received -= likes
-      prev_owner.user_stat.update_topic_reply_count
+      private_message = @post.topic.private_message?
+
+      prev_owner_user_stat = prev_owner.user_stat
+      unless private_message
+        prev_owner_user_stat.post_count -= 1 if @post.post_type == Post.types[:regular]
+        prev_owner_user_stat.topic_count -= 1 if @post.is_first_post?
+        prev_owner_user_stat.likes_received -= likes
+      end
+      prev_owner_user_stat.update_topic_reply_count
 
       if @post.created_at == prev_owner.user_stat.first_post_created_at
-        prev_owner.user_stat.first_post_created_at = prev_owner.posts.order('created_at ASC').first.try(:created_at)
+        prev_owner_user_stat.first_post_created_at = prev_owner.posts.order('created_at ASC').first.try(:created_at)
       end
 
-      prev_owner.user_stat.save
+      prev_owner_user_stat.save!
 
-      new_owner.user_stat.post_count += 1
-      new_owner.user_stat.topic_count += 1 if @post.is_first_post?
-      new_owner.user_stat.likes_received += likes
-      new_owner.user_stat.update_topic_reply_count
-      new_owner.user_stat.save
+      new_owner_user_stat = new_owner.user_stat
+      unless private_message
+        new_owner_user_stat.post_count += 1 if @post.post_type == Post.types[:regular]
+        new_owner_user_stat.topic_count += 1 if @post.is_first_post?
+        new_owner_user_stat.likes_received += likes
+      end
+      new_owner_user_stat.update_topic_reply_count
+      new_owner_user_stat.save!
     end
   end
 
@@ -296,7 +327,7 @@ class PostRevisor
 
   def remove_flags_and_unhide_post
     return unless editing_a_flagged_and_hidden_post?
-    @post.post_actions.where(post_action_type_id: PostActionType.flag_types.values).each do |action|
+    @post.post_actions.where(post_action_type_id: PostActionType.flag_types_without_custom.values).each do |action|
       action.remove_act!(Discourse.system_user)
     end
     @post.unhide!
@@ -323,6 +354,7 @@ class PostRevisor
   end
 
   def create_or_update_revision
+    return if @skip_revision
     # don't create an empty revision if something failed
     return unless successfully_saved_post_and_topic
     @version_changed ? create_revision : update_revision
@@ -391,8 +423,8 @@ class PostRevisor
 
   def is_last_post?
     !Post.where(topic_id: @topic.id)
-         .where("post_number > ?", @post.post_number)
-         .exists?
+      .where("post_number > ?", @post.post_number)
+      .exists?
   end
 
   def plugin_callbacks
@@ -418,17 +450,15 @@ class PostRevisor
   def update_category_description
     return unless category = Category.find_by(topic_id: @topic.id)
 
-    body = @post.cooked
-    matches = body.scan(/\<p\>(.*)\<\/p\>/)
+    doc = Nokogiri::HTML.fragment(@post.cooked)
+    doc.css("img").remove
 
-    matches.each do |match|
-      next if match[0] =~ /\<img(.*)src=/ || match[0].blank?
-      new_description = match[0]
-      # first 50 characters should be fine to test they haven't changed the default description
-      new_description = nil if new_description.starts_with?(I18n.t("category.replace_paragraph")[0..50])
+    if html = doc.css("p").first&.inner_html&.strip
+      new_description = html unless html.starts_with?(Category.post_template[0..50])
       category.update_column(:description, new_description)
       @category_changed = category
-      break
+    else
+      @post.errors[:base] << I18n.t("category.errors.description_incomplete")
     end
   end
 
@@ -439,6 +469,7 @@ class PostRevisor
   def post_process_post
     @post.invalidate_oneboxes = true
     @post.trigger_post_process
+    DiscourseEvent.trigger(:post_edited, @post, self.topic_changed?)
   end
 
   def update_topic_word_counts
@@ -452,6 +483,7 @@ class PostRevisor
   end
 
   def alert_users
+    return if @editor.id == Discourse::SYSTEM_USER_ID
     PostAlerter.new.after_save_post(@post)
   end
 

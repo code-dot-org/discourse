@@ -1,3 +1,4 @@
+import { default as computed } from 'ember-addons/ember-computed-decorators';
 import BulkTopicSelection from "discourse/mixins/bulk-topic-selection";
 import { default as NavItem, extraNavItemProperties, customNavItemHref } from 'discourse/models/nav-item';
 
@@ -16,7 +17,7 @@ if (customNavItemHref) {
     if (navItem.get('tagId')) {
       var name = navItem.get('name');
 
-      if ( !Discourse.Site.currentProp('filters').contains(name) ) {
+      if ( !Discourse.Site.currentProp('filters').includes(name) ) {
         return null;
       }
 
@@ -40,9 +41,10 @@ if (customNavItemHref) {
 
 
 export default Ember.Controller.extend(BulkTopicSelection, {
-  needs: ["application"],
+  application: Ember.inject.controller(),
 
   tag: null,
+  additionalTags: null,
   list: null,
   canAdminTag: Ember.computed.alias("currentUser.staff"),
   filterMode: null,
@@ -57,6 +59,13 @@ export default Ember.Controller.extend(BulkTopicSelection, {
   max_posts: null,
   q: null,
 
+  categories: Ember.computed.alias('site.categoriesList'),
+
+  @computed('canCreateTopic', 'category', 'canCreateTopicOnCategory')
+  createTopicDisabled(canCreateTopic, category, canCreateTopicOnCategory) {
+    return !canCreateTopic || (category && !canCreateTopicOnCategory);
+  },
+
   queryParams: ['order', 'ascending', 'status', 'state', 'search', 'max_posts', 'q'],
 
   navItems: function() {
@@ -67,20 +76,16 @@ export default Ember.Controller.extend(BulkTopicSelection, {
     return Discourse.SiteSettings.show_filter_by_tag;
   }.property('category'),
 
-  categories: function() {
-    return Discourse.Category.list();
-  }.property(),
-
   showAdminControls: function() {
-    return this.get('canAdminTag') && !this.get('category');
-  }.property('canAdminTag', 'category'),
+    return !this.get('additionalTags') && this.get('canAdminTag') && !this.get('category');
+  }.property('additionalTags', 'canAdminTag', 'category'),
 
   loadMoreTopics() {
     return this.get("list").loadMore();
   },
 
   _showFooter: function() {
-    this.set("controllers.application.showFooter", !this.get("list.canLoadMore"));
+    this.set("application.showFooter", !this.get("list.canLoadMore"));
   }.observes("list.canLoadMore"),
 
   footerMessage: function() {
@@ -114,7 +119,9 @@ export default Ember.Controller.extend(BulkTopicSelection, {
 
     deleteTag() {
       const self = this;
-      bootbox.confirm(I18n.t("tagging.delete_confirm"), function(result) {
+      const numTopics = this.get('list.topic_list.tags.firstObject.topic_count') || 0;
+      const confirmText = numTopics === 0 ? I18n.t("tagging.delete_confirm_no_topics") : I18n.t("tagging.delete_confirm", {count: numTopics});
+      bootbox.confirm(confirmText, function(result) {
         if (!result) { return; }
 
         self.get("tag").destroyRecord().then(function() {

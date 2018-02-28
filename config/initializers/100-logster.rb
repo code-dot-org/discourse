@@ -7,13 +7,7 @@ if Rails.env.production?
 
     /^ActionController::UnknownFormat/,
     /^ActionController::UnknownHttpMethod/,
-
     /^AbstractController::ActionNotFound/,
-
-    # alihack is really annoying, nothing really we can do about this
-    # (795: unexpected token at 'alihack<%eval request("alihack.com")%> '):
-    /^ActionDispatch::ParamsParser::ParseError/,
-
     # ignore any empty JS errors that contain blanks or zeros for line and column fields
     #
     # Line:
@@ -21,12 +15,12 @@ if Rails.env.production?
     #
     /(?m).*?Line: (?:\D|0).*?Column: (?:\D|0)/,
 
-    # also empty JS errors
-    /^Script error\..*Line: 0/m,
+    # suppress empty JS errors (covers MSIE 9, etc)
+    /^(Syntax|Script) error.*Line: (0|1)\b/m,
 
     # CSRF errors are not providing enough data
     # suppress unconditionally for now
-    /^Can't verify CSRF token authenticity$/,
+    /^Can't verify CSRF token authenticity.$/,
 
     # Yandex bot triggers this JS error a lot
     /^Uncaught ReferenceError: I18n is not defined/,
@@ -38,19 +32,26 @@ if Rails.env.production?
     /^ActiveRecord::RecordNotFound/,
 
     # bad asset requested, no need to log
-    /^ActionController::BadRequest/
+    /^ActionController::BadRequest/,
+
+    # we can't do anything about invalid parameters
+    /Rack::QueryParser::InvalidParameterError/,
+
+    # we handle this cleanly in the message bus middleware
+    # no point logging to logster
+    /RateLimiter::LimitExceeded.*/m
   ]
 end
 
 # middleware that logs errors sits before multisite
 # we need to establish a connection so redis connection is good
 # and db connection is good
-Logster.config.current_context = lambda{|env,&blk|
+Logster.config.current_context = lambda { |env, &blk|
   begin
     if Rails.configuration.multisite
       request = Rack::Request.new(env)
       ActiveRecord::Base.connection_handler.clear_active_connections!
-      RailsMultisite::ConnectionManagement.establish_connection(:host => request['__ws'] || request.host)
+      RailsMultisite::ConnectionManagement.establish_connection(host: request['__ws'] || request.host)
     end
     blk.call
   ensure
@@ -74,7 +75,7 @@ RailsMultisite::ConnectionManagement.each_connection do
 
   if (error_rate_per_minute || 0) > 0
     store.register_rate_limit_per_minute(severities, error_rate_per_minute) do |rate|
-      MessageBus.publish("/logs_error_rate_exceeded", { rate: rate, duration: 'minute' })
+      MessageBus.publish("/logs_error_rate_exceeded", rate: rate, duration: 'minute', publish_at: Time.current.to_i)
     end
   end
 
@@ -82,7 +83,12 @@ RailsMultisite::ConnectionManagement.each_connection do
 
   if (error_rate_per_hour || 0) > 0
     store.register_rate_limit_per_hour(severities, error_rate_per_hour) do |rate|
-      MessageBus.publish("/logs_error_rate_exceeded", { rate: rate, duration: 'hour' })
+      MessageBus.publish("/logs_error_rate_exceeded", rate: rate, duration: 'hour', publish_at: Time.current.to_i)
     end
   end
+end
+
+if Rails.configuration.multisite
+  chained = Rails.logger.instance_variable_get(:@chained)
+  chained && chained.first.formatter = RailsMultisite::Formatter.new
 end

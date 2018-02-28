@@ -4,7 +4,7 @@ describe UserAnonymizer do
 
   describe "make_anonymous" do
     let(:admin) { Fabricate(:admin) }
-    let(:user) { Fabricate(:user, username: "edward", auth_token: "mysecretauthtoken") }
+    let(:user) { Fabricate(:user, username: "edward") }
 
     subject(:make_anonymous) { described_class.make_anonymous(user, admin) }
 
@@ -38,18 +38,20 @@ describe UserAnonymizer do
       end
 
       it "resets profile to default values" do
-        user.update_attributes( name: "Bibi", date_of_birth: 19.years.ago, title: "Super Star" )
+        user.update_attributes(name: "Bibi", date_of_birth: 19.years.ago, title: "Super Star")
 
-        profile = user.user_profile(true)
-        profile.update_attributes( location: "Moose Jaw",
-                                   website: "www.bim.com",
-                                   bio_raw: "I'm Bibi from Moosejaw. I sing and dance.",
-                                   bio_cooked: "I'm Bibi from Moosejaw. I sing and dance.",
-                                   profile_background: "http://example.com/bg.jpg",
-                                   bio_cooked_version: 2,
-                                   card_background: "http://example.com/cb.jpg")
+        profile = user.reload.user_profile
+        profile.update_attributes(location: "Moose Jaw",
+                                  website: "www.bim.com",
+                                  bio_raw: "I'm Bibi from Moosejaw. I sing and dance.",
+                                  bio_cooked: "I'm Bibi from Moosejaw. I sing and dance.",
+                                  profile_background: "http://example.com/bg.jpg",
+                                  bio_cooked_version: 2,
+                                  card_background: "http://example.com/cb.jpg")
 
         prev_username = user.username
+
+        UserAuthToken.generate!(user_id: user.id)
 
         make_anonymous
         user.reload
@@ -58,9 +60,9 @@ describe UserAnonymizer do
         expect(user.name).not_to be_present
         expect(user.date_of_birth).to eq(nil)
         expect(user.title).not_to be_present
-        expect(user.auth_token).to eq(nil)
+        expect(user.user_auth_tokens.count).to eq(0)
 
-        profile = user.user_profile(true)
+        profile = user.reload.user_profile
         expect(profile.location).to eq(nil)
         expect(profile.website).to eq(nil)
         expect(profile.bio_cooked).to eq(nil)
@@ -78,7 +80,7 @@ describe UserAnonymizer do
       it "changes name to anonymized username" do
         prev_username = user.username
 
-        user.update_attributes( name: "Bibi", date_of_birth: 19.years.ago, title: "Super Star" )
+        user.update_attributes(name: "Bibi", date_of_birth: 19.years.ago, title: "Super Star")
 
         make_anonymous
         user.reload

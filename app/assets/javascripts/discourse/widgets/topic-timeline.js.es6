@@ -1,38 +1,52 @@
 import { createWidget } from 'discourse/widgets/widget';
+import ComponentConnector from 'discourse/widgets/component-connector';
 import { h } from 'virtual-dom';
 import { relativeAge } from 'discourse/lib/formatter';
-import { iconNode } from 'discourse/helpers/fa-icon';
+import { iconNode } from 'discourse-common/lib/icon-library';
+import RawHtml from 'discourse/widgets/raw-html';
 
-const SCROLLAREA_HEIGHT = 300;
 const SCROLLER_HEIGHT = 50;
-const SCROLLAREA_REMAINING = SCROLLAREA_HEIGHT - SCROLLER_HEIGHT;
+const LAST_READ_HEIGHT = 20;
+
+function scrollareaHeight() {
+  return ($(window).height() < 425) ? 150 : 300;
+}
+
+function scrollareaRemaining() {
+  return scrollareaHeight() - SCROLLER_HEIGHT;
+}
 
 function clamp(p, min=0.0, max=1.0) {
   return Math.max(Math.min(p, max), min);
+}
+
+function attachBackButton(widget) {
+  return widget.attach('button', {
+    className: 'btn-primary btn-small back-button',
+    label: 'topic.timeline.back',
+    title: 'topic.timeline.back_description',
+    action: 'goBack'
+  });
 }
 
 createWidget('timeline-last-read', {
   tagName: 'div.timeline-last-read',
 
   buildAttributes(attrs) {
-    return { style: `height: 40px; top: ${attrs.top}px` };
+    const bottom = scrollareaHeight() - (LAST_READ_HEIGHT / 2);
+    const top = attrs.top > bottom ? bottom : attrs.top;
+    return { style: `height: ${LAST_READ_HEIGHT}px; top: ${top}px` };
   },
 
-  html() {
-    return [
-      iconNode('circle', { class: 'progress' }),
-      this.attach('button', {
-        className: 'btn btn-primary btn-small',
-        label: 'topic.timeline.back',
-        title: 'topic.timeline.back_description',
-        action: 'goBack'
-      })
-    ];
+  html(attrs) {
+    const result = [ iconNode('minus', { class: 'progress' }) ];
+    if (attrs.showButton) {
+      result.push(attachBackButton(this));
+    }
+
+    return result;
   },
 
-  goBack() {
-    this.sendWidgetAction('jumpToPost', this.attrs.lastRead);
-  }
 });
 
 function timelineDate(date) {
@@ -42,12 +56,17 @@ function timelineDate(date) {
 
 createWidget('timeline-scroller', {
   tagName: 'div.timeline-scroller',
+  buildKey: () => `timeline-scroller`,
+
+  defaultState() {
+    return { dragging: false };
+  },
 
   buildAttributes() {
     return { style: `height: ${SCROLLER_HEIGHT}px` };
   },
 
-  html(attrs) {
+  html(attrs, state) {
     const { current, total, date } = attrs;
 
     const contents = [
@@ -58,15 +77,30 @@ createWidget('timeline-scroller', {
       contents.push(h('div.timeline-ago', timelineDate(date)));
     }
 
-    return [ h('div.timeline-handle'), h('div.timeline-scroller-content', contents) ];
+    if (attrs.showDockedButton && !state.dragging) {
+      contents.push(attachBackButton(this));
+    }
+    let result = [ h('div.timeline-handle'), h('div.timeline-scroller-content', contents) ];
+
+    if (attrs.fullScreen) {
+      result = [result[1], result[0]];
+    }
+
+    return result;
   },
 
   drag(e) {
+    this.state.dragging = true;
     this.sendWidgetAction('updatePercentage', e.pageY);
   },
 
-  dragEnd() {
-    this.sendWidgetAction('commit');
+  dragEnd(e) {
+    this.state.dragging = false;
+    if ($(e.target).is('button')) {
+      this.sendWidgetAction('goBack');
+    } else {
+      this.sendWidgetAction('commit');
+    }
   }
 });
 
@@ -87,7 +121,7 @@ createWidget('timeline-scrollarea', {
   buildKey: () => `timeline-scrollarea`,
 
   buildAttributes() {
-    return { style: `height: ${SCROLLAREA_HEIGHT}px` };
+    return { style: `height: ${scrollareaHeight()}px` };
   },
 
   defaultState(attrs) {
@@ -124,6 +158,12 @@ createWidget('timeline-scrollarea', {
       result.lastReadPercentage = this._percentFor(topic, idx);
     }
 
+
+    if (this.state.position !== result.current) {
+      this.state.position = result.current;
+      this.sendWidgetAction('updatePosition', result.current);
+    }
+
     return result;
   },
 
@@ -134,20 +174,44 @@ createWidget('timeline-scrollarea', {
     const percentage = state.percentage;
     if (percentage === null) { return; }
 
-    const before = SCROLLAREA_REMAINING * percentage;
-    const after = (SCROLLAREA_HEIGHT - before) - SCROLLER_HEIGHT;
+    const before = scrollareaRemaining() * percentage;
+    const after = (scrollareaHeight() - before) - SCROLLER_HEIGHT;
+
+    let showButton = false;
+    const hasBackPosition =
+      position.lastRead > 3 &&
+      Math.abs(position.lastRead - position.current) > 3 &&
+      Math.abs(position.lastRead - position.total) > 1 &&
+      (position.lastRead && position.lastRead !== position.total);
+
+    if (hasBackPosition) {
+      const lastReadTop = Math.round(position.lastReadPercentage * scrollareaHeight());
+      showButton = ((before + SCROLLER_HEIGHT - 5) < lastReadTop) ||
+                    (before > (lastReadTop + 25));
+
+
+      // Don't show if at the bottom of the timeline
+      if (lastReadTop > (scrollareaHeight() - (LAST_READ_HEIGHT / 2))) {
+        showButton = false;
+      }
+    }
 
     const result = [
       this.attach('timeline-padding', { height: before }),
-      this.attach('timeline-scroller', position),
+      this.attach('timeline-scroller', _.merge(position, {
+        showDockedButton: !attrs.mobileView && hasBackPosition && !showButton,
+        fullScreen: attrs.fullScreen
+      })),
       this.attach('timeline-padding', { height: after })
     ];
 
-    if (position.lastRead && position.lastRead !== position.total) {
-      const lastReadTop = Math.round(position.lastReadPercentage * SCROLLAREA_HEIGHT);
-      if ((lastReadTop > (before + SCROLLER_HEIGHT)) && (lastReadTop < (SCROLLAREA_HEIGHT - SCROLLER_HEIGHT))) {
-        result.push(this.attach('timeline-last-read', { top: lastReadTop, lastRead: position.lastRead }));
-      }
+    if (hasBackPosition) {
+      const lastReadTop = Math.round(position.lastReadPercentage * scrollareaHeight());
+      result.push(this.attach('timeline-last-read', {
+        top: lastReadTop,
+        lastRead: position.lastRead,
+        showButton
+      }));
     }
 
     return result;
@@ -176,12 +240,23 @@ createWidget('timeline-scrollarea', {
   _percentFor(topic, postIndex) {
     const total = topic.get('postStream.filteredPostsCount');
     return clamp(parseFloat(postIndex - 1.0) / total);
+  },
+
+  goBack() {
+    this.sendWidgetAction('jumpToIndex', this.position().lastRead);
   }
 });
 
 createWidget('topic-timeline-container', {
   tagName: 'div.timeline-container',
   buildClasses(attrs) {
+    if (attrs.fullScreen) {
+      if (attrs.addShowClass) {
+        return 'timeline-fullscreen show';
+      } else {
+        return 'timeline-fullscreen';
+      }
+    }
     if (attrs.dockAt) {
       const result = ['timeline-docked'];
       if (attrs.dockBottom) {
@@ -192,7 +267,9 @@ createWidget('topic-timeline-container', {
   },
 
   buildAttributes(attrs) {
-    return { style: `top: ${attrs.top}px` };
+    if (attrs.top) {
+      return { style: `top: ${attrs.top}px` };
+    }
   },
 
   html(attrs) {
@@ -200,8 +277,105 @@ createWidget('topic-timeline-container', {
   }
 });
 
+createWidget('timeline-controls', {
+  tagName: 'div.timeline-controls',
+
+  html(attrs) {
+    const controls = [];
+    const { fullScreen, currentUser, topic } = attrs;
+
+    if (!fullScreen && currentUser && currentUser.get('canManageTopic')) {
+      controls.push(this.attach('topic-admin-menu-button', { topic }));
+    }
+
+    return controls;
+  }
+});
+
+createWidget('timeline-footer-controls', {
+  tagName: 'div.timeline-footer-controls',
+
+  html(attrs) {
+    const controls = [];
+    const { currentUser, fullScreen, topic, notificationLevel } = attrs;
+
+    if (currentUser && !fullScreen) {
+      if (topic.get('details.can_create_post')) {
+        controls.push(this.attach('button', {
+          className: 'create',
+          icon: 'reply',
+          title: 'topic.reply.help',
+          action: 'replyToPost'
+        }));
+      }
+    }
+
+    if (fullScreen) {
+      controls.push(this.attach('button', {
+        className: 'jump-to-post',
+        title: 'topic.progress.jump_prompt_long',
+        label: 'topic.progress.jump_prompt',
+        action: 'jumpToPostPrompt'
+      }));
+    }
+
+    if (currentUser) {
+      controls.push(new ComponentConnector(this,
+        'topic-notifications-options',
+        {
+          value: notificationLevel,
+          topic,
+          showFullTitle: false
+        },
+        ["value"]
+      ));
+    }
+
+    return controls;
+  }
+
+});
+
 export default createWidget('topic-timeline', {
   tagName: 'div.topic-timeline',
+
+  buildKey: () => 'topic-timeline-area',
+
+  defaultState() {
+    return { position: null, excerpt: null };
+  },
+
+  updatePosition(pos) {
+    if (!this.attrs.fullScreen) {
+      return;
+    }
+
+    this.state.position = pos;
+    this.state.excerpt = "";
+    const stream = this.attrs.topic.get('postStream');
+
+    // a little debounce to avoid flashing
+    setTimeout(()=>{
+      if (!this.state.position === pos) {
+        return;
+      }
+
+      // we have an off by one, stream is zero based,
+      // pos is 1 based
+      stream.excerpt(pos-1).then(info => {
+        if (info && this.state.position === pos) {
+          let excerpt = "";
+
+          if (info.username) {
+            excerpt = "<span class='username'>" + info.username + ":</span> ";
+          }
+
+          this.state.excerpt = excerpt + info.excerpt;
+          this.scheduleRerender();
+        }
+      });
+    }, 50);
+  },
 
   html(attrs) {
     const { topic } = attrs;
@@ -209,45 +383,56 @@ export default createWidget('topic-timeline', {
     const stream = attrs.topic.get('postStream.stream');
     const { currentUser } = this;
 
+    attrs["currentUser"] = currentUser;
 
     let result = [];
-    if (currentUser && currentUser.get('canManageTopic')) {
-      result.push(h('div.timeline-controls', this.attach('topic-admin-menu-button', { topic })));
-    }
 
-    if (stream.length < 3) {
-      return result;
-    }
+    if (attrs.fullScreen) {
+      let titleHTML = "";
+      if (attrs.mobileView) {
+        titleHTML = new RawHtml({ html: `<span>${topic.get('fancyTitle')}</span>` });
+      }
 
-    const bottomAge = relativeAge(new Date(topic.last_posted_at), { addAgo: true, defaultFormat: timelineDate });
-    result = result.concat([this.attach('link', {
-                              className: 'start-date',
-                              rawLabel: timelineDate(createdAt),
-                              action: 'jumpTop'
-                            }),
-                            this.attach('timeline-scrollarea', attrs),
-                            this.attach('link', {
-                              className: 'now-date',
-                              rawLabel: bottomAge,
-                              action: 'jumpBottom'
-                            })]);
+      let elems = [h('h2', this.attach('link', {
+        contents: () => titleHTML,
+        className: 'fancy-title',
+        action: 'jumpTop'
+      }))];
 
-    if (currentUser) {
-      const controls = [];
-      if (attrs.topic.get('details.can_create_post')) {
-        controls.push(this.attach('button', {
-          className: 'btn create',
-          icon: 'reply',
-          title: 'topic.reply.help',
-          action: 'replyToPost'
+      if (this.state.excerpt) {
+        elems.push(new RawHtml({
+          html: `<div class='post-excerpt'>${this.state.excerpt}</div>`
         }));
       }
 
-      if (currentUser) {
-        controls.push(this.attach('topic-notifications-button', { topic }));
-      }
-      result.push(h('div.timeline-footer-controls', controls));
+      result.push(h('div.title', elems));
     }
+
+    result.push(this.attach('timeline-controls', attrs));
+
+    if (stream.length < 3) {
+      const topicHeight = $('#topic').height();
+      const windowHeight = $(window).height();
+      if ((topicHeight / windowHeight) < 2.0) {
+        return result;
+      }
+    }
+
+    const bottomAge = relativeAge(new Date(topic.last_posted_at), { addAgo: true, defaultFormat: timelineDate });
+    let scroller = [h('div.timeline-date-wrapper', this.attach('link', {
+                              className: 'start-date',
+                              rawLabel: timelineDate(createdAt),
+                              action: 'jumpTop'
+                            })),
+                            this.attach('timeline-scrollarea', attrs),
+                            h('div.timeline-date-wrapper', this.attach('link', {
+                              className: 'now-date',
+                              rawLabel: bottomAge,
+                              action: 'jumpBottom'
+                            }))];
+
+    result.push(h('div.timeline-scrollarea-wrapper', scroller));
+    result.push(this.attach('timeline-footer-controls', attrs));
 
     return result;
   }

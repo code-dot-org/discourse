@@ -1,8 +1,13 @@
 #mixin for all guardian methods dealing with topic permisions
 module TopicGuardian
 
-  def can_remove_allowed_users?(topic)
-    is_staff?
+  def can_remove_allowed_users?(topic, target_user = nil)
+    is_staff? ||
+    (
+      topic.allowed_users.count > 1 &&
+      topic.user != target_user &&
+      !!(target_user && user == target_user)
+    )
   end
 
   # Creating Methods
@@ -20,6 +25,7 @@ module TopicGuardian
 
   def can_create_post_on_topic?(topic)
     # No users can create posts on deleted topics
+    return false if topic.blank?
     return false if topic.trashed?
     return true if is_admin?
 
@@ -40,10 +46,22 @@ module TopicGuardian
     return false if !can_create_topic_on_category?(topic.category)
 
     # TL4 users can edit archived topics, but can not edit private messages
-    return true if (topic.archived && !topic.private_message? && user.has_trust_level?(TrustLevel[4]) && can_create_post?(topic))
+    return true if (
+      SiteSetting.trusted_users_can_edit_others? &&
+      topic.archived &&
+      !topic.private_message? &&
+      user.has_trust_level?(TrustLevel[4]) &&
+      can_create_post?(topic)
+    )
 
     # TL3 users can not edit archived topics and private messages
-    return true if (!topic.archived && !topic.private_message? && user.has_trust_level?(TrustLevel[3]) && can_create_post?(topic))
+    return true if (
+      SiteSetting.trusted_users_can_edit_others? &&
+      !topic.archived &&
+      !topic.private_message? &&
+      user.has_trust_level?(TrustLevel[3]) &&
+      can_create_post?(topic)
+    )
 
     return false if topic.archived
     is_my_own?(topic) && !topic.edit_time_limit_expired?
@@ -51,7 +69,7 @@ module TopicGuardian
 
   # Recovery Method
   def can_recover_topic?(topic)
-    is_staff?
+    topic && topic.deleted_at && topic.user && is_staff?
   end
 
   def can_delete_topic?(topic)
@@ -62,20 +80,22 @@ module TopicGuardian
   end
 
   def can_convert_topic?(topic)
+    return false if topic.blank?
     return false if topic && topic.trashed?
+    return false if Category.where("topic_id = ?", topic.id).exists?
     return true if is_admin?
     is_moderator? && can_create_post?(topic)
   end
 
   def can_reply_as_new_topic?(topic)
-    authenticated? && topic && !topic.private_message? && @user.has_trust_level?(TrustLevel[1])
+    authenticated? && topic && @user.has_trust_level?(TrustLevel[1])
   end
 
   def can_see_deleted_topics?
     is_staff?
   end
 
-  def can_see_topic?(topic, hide_deleted=true)
+  def can_see_topic?(topic, hide_deleted = true)
     return false unless topic
     return true if is_admin?
     return false if hide_deleted && topic.deleted_at && !can_see_deleted_topics?
@@ -104,4 +124,8 @@ module TopicGuardian
     records
   end
 
+  def can_edit_featured_link?(category_id)
+    return false unless SiteSetting.topic_featured_link_enabled
+    Category.where(id: category_id || SiteSetting.uncategorized_category_id, topic_featured_link_allowed: true).exists?
+  end
 end

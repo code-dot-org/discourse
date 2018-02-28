@@ -1,4 +1,4 @@
-import DiscourseResolver from 'discourse/ember/resolver';
+import { buildResolver } from 'discourse-common/resolver';
 import { default as computed, observes } from 'ember-addons/ember-computed-decorators';
 
 const _pluginCallbacks = [];
@@ -6,7 +6,12 @@ const _pluginCallbacks = [];
 const Discourse = Ember.Application.extend({
   rootElement: '#main',
   _docTitle: document.title,
-  __TAGS_INCLUDED__: true,
+  RAW_TEMPLATES: {},
+  __widget_helpers: {},
+  showingSignup: false,
+  customEvents: {
+    paste: 'paste'
+  },
 
   getURL(url) {
     if (!url) return url;
@@ -31,7 +36,7 @@ const Discourse = Ember.Application.extend({
     return url;
   },
 
-  Resolver: DiscourseResolver,
+  Resolver: buildResolver('discourse'),
 
   @observes('_docTitle', 'hasFocus', 'notifyCount')
   _titleChanged() {
@@ -102,21 +107,28 @@ const Discourse = Ember.Application.extend({
 
     Object.keys(requirejs._eak_seen).forEach(function(key) {
       if (/\/pre\-initializers\//.test(key)) {
-        const module = require(key, null, null, true);
+        const module = requirejs(key, null, null, true);
         if (!module) { throw new Error(key + ' must export an initializer.'); }
-        Discourse.initializer(module.default);
+
+        const init = module.default;
+        const oldInitialize = init.initialize;
+        init.initialize = function() {
+          oldInitialize.call(this, Discourse.__container__, Discourse);
+        };
+
+        Discourse.initializer(init);
       }
     });
 
     Object.keys(requirejs._eak_seen).forEach(function(key) {
       if (/\/initializers\//.test(key)) {
-        const module = require(key, null, null, true);
+        const module = requirejs(key, null, null, true);
         if (!module) { throw new Error(key + ' must export an initializer.'); }
 
         const init = module.default;
         const oldInitialize = init.initialize;
-        init.initialize = function(app) {
-          oldInitialize.call(this, app.container, Discourse);
+        init.initialize = function() {
+          oldInitialize.call(this, Discourse.__container__, Discourse);
         };
 
         Discourse.instanceInitializer(init);
@@ -124,25 +136,16 @@ const Discourse = Ember.Application.extend({
     });
 
     // Plugins that are registered via `<script>` tags.
-    const withPluginApi = require('discourse/lib/plugin-api').withPluginApi;
+    const withPluginApi = requirejs('discourse/lib/plugin-api').withPluginApi;
     let initCount = 0;
     _pluginCallbacks.forEach(function(cb) {
       Discourse.instanceInitializer({
         name: "_discourse_plugin_" + (++initCount),
         after: 'inject-objects',
-        initialize: function() {
+        initialize() {
           withPluginApi(cb.version, cb.code);
         }
       });
-    });
-
-    const utils = require('discourse/lib/utilities');
-    Discourse.Utilities = {};
-    Object.keys(utils).forEach(function(k) {
-      Discourse.Utilities[k] = function() {
-        Ember.warn('Discourse.Utilities is deprecated. Import it as a module');
-        return utils[k].apply(utils, arguments);
-      };
     });
   },
 

@@ -3,25 +3,42 @@ import ModalFunctionality from 'discourse/mixins/modal-functionality';
 import showModal from 'discourse/lib/show-modal';
 import { setting } from 'discourse/lib/computed';
 import { findAll } from 'discourse/models/login-method';
+import { escape } from 'pretty-text/sanitizer';
+import { escapeExpression } from 'discourse/lib/utilities';
+import { extractError } from 'discourse/lib/ajax-error';
+import computed from 'ember-addons/ember-computed-decorators';
 
 // This is happening outside of the app via popup
-const AuthErrors =
-  ['requires_invite', 'awaiting_approval', 'awaiting_confirmation', 'admin_not_allowed_from_ip_address',
-   'not_allowed_from_ip_address'];
+const AuthErrors = [
+  'requires_invite',
+  'awaiting_approval',
+  'awaiting_activation',
+  'admin_not_allowed_from_ip_address',
+  'not_allowed_from_ip_address'
+];
 
 export default Ember.Controller.extend(ModalFunctionality, {
-  needs: ['modal', 'createAccount', 'forgotPassword', 'application'],
+
+  createAccount: Ember.inject.controller(),
+  forgotPassword: Ember.inject.controller(),
+  application: Ember.inject.controller(),
+
   authenticate: null,
   loggingIn: false,
   loggedIn: false,
+  processingEmailLink: false,
 
   canLoginLocal: setting('enable_local_logins'),
-  loginRequired: Em.computed.alias('controllers.application.loginRequired'),
+  canLoginLocalWithEmail: setting('enable_local_logins_via_email'),
+  loginRequired: Em.computed.alias('application.loginRequired'),
 
   resetForm: function() {
     this.set('authenticate', null);
     this.set('loggingIn', false);
     this.set('loggedIn', false);
+    this.set('secondFactorRequired', false);
+    $("#credentials").show();
+    $("#second-factor").hide();
   },
 
   // Determines whether at least one login button is enabled
@@ -29,14 +46,15 @@ export default Ember.Controller.extend(ModalFunctionality, {
     return findAll(this.siteSettings).length > 0;
   }.property(),
 
-  loginButtonText: function() {
-    return this.get('loggingIn') ? I18n.t('login.logging_in') : I18n.t('login.title');
-  }.property('loggingIn'),
+  @computed('loggingIn')
+  loginButtonLabel(loggingIn) {
+    return loggingIn ? 'login.logging_in' : 'login.title';
+  },
 
   loginDisabled: Em.computed.or('loggingIn', 'loggedIn'),
 
   showSignupLink: function() {
-    return this.get('controllers.application.canSignUp') &&
+    return this.get('application.canSignUp') &&
            !this.get('loggingIn') &&
            Ember.isEmpty(this.get('authenticate'));
   }.property('loggingIn', 'authenticate'),
@@ -45,9 +63,15 @@ export default Ember.Controller.extend(ModalFunctionality, {
     return this.get('loggingIn') || this.get('authenticate');
   }.property('loggingIn', 'authenticate'),
 
+  @computed('canLoginLocalWithEmail', 'loginName', 'processingEmailLink')
+  showLoginWithEmailLink(canLoginLocalWithEmail, loginName, processingEmailLink) {
+    return canLoginLocalWithEmail && !Ember.isEmpty(loginName) && !processingEmailLink;
+  },
+
   actions: {
-    login: function() {
+    login() {
       const self = this;
+      if (this.get('loginDisabled')) { return; }
 
       if(Ember.isEmpty(this.get('loginName')) || Ember.isEmpty(this.get('loginPassword'))){
         self.flash(I18n.t('login.blank_username_or_password'), 'error');
@@ -57,17 +81,28 @@ export default Ember.Controller.extend(ModalFunctionality, {
       this.set('loggingIn', true);
 
       ajax("/session", {
-        data: { login: this.get('loginName'), password: this.get('loginPassword') },
-        type: 'POST'
+        type: 'POST',
+        data: {
+          login: this.get('loginName'),
+          password: this.get('loginPassword'),
+          second_factor_token: this.get('loginSecondFactor')
+        },
       }).then(function (result) {
         // Successful login
-        if (result.error) {
+        if (result && result.error) {
           self.set('loggingIn', false);
-          if( result.reason === 'not_activated' ) {
+
+          if (result.reason === 'invalid_second_factor' && !self.get('secondFactorRequired')) {
+            $('#modal-alert').hide();
+            self.set('secondFactorRequired', true);
+            $("#credentials").hide();
+            $("#second-factor").show();
+            return;
+          } else if (result.reason === 'not_activated') {
             self.send('showNotActivated', {
               username: self.get('loginName'),
-              sentTo: result.sent_to_email,
-              currentEmail: result.current_email
+              sentTo: escape(result.sent_to_email),
+              currentEmail: escape(result.current_email)
             });
           } else if (result.reason === 'suspended' ) {
             self.send("closeModal");
@@ -80,7 +115,6 @@ export default Ember.Controller.extend(ModalFunctionality, {
           // Trigger the browser's password manager using the hidden static login form:
           const $hidden_login_form = $('#hidden-login-form');
           const destinationUrl = $.cookie('destination_url');
-          const shouldRedirectToUrl = self.session.get("shouldRedirectToUrl");
           const ssoDestinationUrl = $.cookie('sso_destination_url');
           $hidden_login_form.find('input[name=username]').val(self.get('loginName'));
           $hidden_login_form.find('input[name=password]').val(self.get('loginPassword'));
@@ -93,9 +127,6 @@ export default Ember.Controller.extend(ModalFunctionality, {
             // redirect client to the original URL
             $.cookie('destination_url', null);
             $hidden_login_form.find('input[name=redirect]').val(destinationUrl);
-          } else if (shouldRedirectToUrl) {
-            self.session.set("shouldRedirectToUrl", null);
-            $hidden_login_form.find('input[name=redirect]').val(shouldRedirectToUrl);
           } else {
             $hidden_login_form.find('input[name=redirect]').val(window.location.href);
           }
@@ -129,8 +160,9 @@ export default Ember.Controller.extend(ModalFunctionality, {
       if(customLogin){
         customLogin();
       } else {
-        const authUrl = loginMethod.get('customUrl') || Discourse.getURL("/auth/" + name);
+        let authUrl = loginMethod.get('customUrl') || Discourse.getURL("/auth/" + name);
         if (loginMethod.get("fullScreenLogin")) {
+          document.cookie = "fsl=true";
           window.location = authUrl;
         } else {
           this.set('authenticate', name);
@@ -139,6 +171,11 @@ export default Ember.Controller.extend(ModalFunctionality, {
 
           const height = loginMethod.get("frameHeight") || 400;
           const width = loginMethod.get("frameWidth") || 800;
+
+          if (loginMethod.get("displayPopup")) {
+            authUrl = authUrl + "?display=popup";
+          }
+
           const w = window.open(authUrl, "_blank",
               "menubar=no,status=no,height=" + height + ",width=" + width +  ",left=" + left + ",top=" + top);
           const self = this;
@@ -153,7 +190,7 @@ export default Ember.Controller.extend(ModalFunctionality, {
     },
 
     createAccount: function() {
-      const createAccountController = this.get('controllers.createAccount');
+      const createAccountController = this.get('createAccount');
       if (createAccountController) {
         createAccountController.resetForm();
         const loginName = this.get('loginName');
@@ -167,15 +204,46 @@ export default Ember.Controller.extend(ModalFunctionality, {
     },
 
     forgotPassword: function() {
-      const forgotPasswordController = this.get('controllers.forgotPassword');
+      const forgotPasswordController = this.get('forgotPassword');
       if (forgotPasswordController) { forgotPasswordController.set("accountEmailOrUsername", this.get("loginName")); }
       this.send("showForgotPassword");
+    },
+
+    emailLogin() {
+      if (this.get('processingEmailLink')) {
+        return;
+      }
+
+      if (Ember.isEmpty(this.get('loginName'))){
+        this.flash(I18n.t('login.blank_username'), 'error');
+        return;
+      }
+
+      this.set('processingEmailLink', true);
+
+      ajax('/u/email-login', {
+        data: { login: this.get('loginName').trim() },
+        type: 'POST'
+      }).then(data => {
+        const loginName = escapeExpression(this.get('loginName'));
+        const isEmail = loginName.match(/@/);
+        let key = `email_login.complete_${isEmail ? 'email' : 'username'}`;
+        if (data.user_found) {
+          this.flash(I18n.t(`${key}_found`, { email: loginName, username: loginName }));
+        } else {
+          this.flash(I18n.t(`${key}_not_found`, { email: loginName, username: loginName }), 'error');
+        }
+      }).catch(e => {
+        this.flash(extractError(e), 'error');
+      }).finally(() => {
+        this.set('processingEmailLink', false);
+      });
     }
   },
 
   authMessage: (function() {
     if (Ember.isEmpty(this.get('authenticate'))) return "";
-    const method = findAll(this.siteSettings).findProperty("name", this.get("authenticate"));
+    const method = findAll(this.siteSettings, this.capabilities, this.isMobileDevice).findBy("name", this.get("authenticate"));
     if(method){
       return method.get('message');
     }
@@ -205,15 +273,11 @@ export default Ember.Controller.extend(ModalFunctionality, {
 
     // Reload the page if we're authenticated
     if (options.authenticated) {
-      const destinationUrl = $.cookie('destination_url');
-      const shouldRedirectToUrl = self.session.get("shouldRedirectToUrl");
-      if (self.get('loginRequired') && destinationUrl) {
+      const destinationUrl = $.cookie('destination_url') || options.destination_url;
+      if (destinationUrl) {
         // redirect client to the original URL
         $.cookie('destination_url', null);
         window.location.href = destinationUrl;
-      } else if (shouldRedirectToUrl) {
-        self.session.set("shouldRedirectToUrl", null);
-        window.location.href = shouldRedirectToUrl;
       } else if (window.location.pathname === Discourse.getURL('/login')) {
         window.location.pathname = Discourse.getURL('/');
       } else {
@@ -222,7 +286,7 @@ export default Ember.Controller.extend(ModalFunctionality, {
       return;
     }
 
-    const createAccountController = this.get('controllers.createAccount');
+    const createAccountController = this.get('createAccount');
     createAccountController.setProperties({
       accountEmail: options.email,
       accountUsername: options.username,

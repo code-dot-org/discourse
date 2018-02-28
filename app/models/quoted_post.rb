@@ -17,25 +17,25 @@ class QuotedPost < ActiveRecord::Base
       post_number = a['data-post'].to_i
 
       next if topic_id == 0 || post_number == 0
-      next if uniq[[topic_id,post_number]]
-      uniq[[topic_id,post_number]] = true
+      next if uniq[[topic_id, post_number]]
+      uniq[[topic_id, post_number]] = true
 
+      begin
+        # It would be so much nicer if we used post_id in quotes
+        results = exec_sql "INSERT INTO quoted_posts(post_id, quoted_post_id, created_at, updated_at)
+                 SELECT :post_id, p.id, current_timestamp, current_timestamp
+                 FROM posts p
+                 LEFT JOIN quoted_posts q on q.post_id = :post_id AND q.quoted_post_id = p.id
+                 WHERE post_number = :post_number AND
+                       topic_id = :topic_id AND
+                       q.id IS NULL
+                 RETURNING quoted_post_id
+        ", post_id: post.id, post_number: post_number, topic_id: topic_id
 
-      # It would be so much nicer if we used post_id in quotes
-      results = exec_sql "INSERT INTO quoted_posts(post_id, quoted_post_id, created_at, updated_at)
-               SELECT :post_id, p.id, current_timestamp, current_timestamp
-               FROM posts p
-               LEFT JOIN quoted_posts q on q.post_id = :post_id AND q.quoted_post_id = p.id
-               WHERE post_number = :post_number AND
-                     topic_id = :topic_id AND
-                     q.id IS NULL
-               RETURNING quoted_post_id
-      ", post_id: post.id, post_number: post_number, topic_id: topic_id
-
-      results = results.to_a
-
-      if results.length > 0
-        ids << results[0]["quoted_post_id"].to_i
+        results = results.to_a
+        ids << results[0]["quoted_post_id"].to_i if results.length > 0
+      rescue ActiveRecord::RecordNotUnique, PG::UniqueViolation
+        # it's fine
       end
     end
 

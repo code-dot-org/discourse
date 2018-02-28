@@ -1,5 +1,7 @@
 class SingleSignOnRecord < ActiveRecord::Base
   belongs_to :user
+
+  validates :external_id, uniqueness: true
 end
 
 # == Schema Information
@@ -15,7 +17,7 @@ end
 #  external_username   :string
 #  external_email      :string
 #  external_name       :string
-#  external_avatar_url :string
+#  external_avatar_url :string(1000)
 #
 # Indexes
 #

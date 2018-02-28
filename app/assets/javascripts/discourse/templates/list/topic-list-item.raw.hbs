@@ -1,24 +1,24 @@
 {{#if bulkSelectEnabled}}
-  <td class='star'>
+  <td class="bulk-select">
     <input type="checkbox" class="bulk-select">
   </td>
 {{/if}}
 
 <td class='main-link clearfix' colspan="{{titleColSpan}}">
-  {{raw "topic-status" topic=topic}}
-  {{topic-link topic}}
-  {{plugin-outlet "topic-list-after-title"}}
-  {{#if showTopicPostBadges}}
-    {{raw "topic-post-badges" unread=topic.unread newPosts=topic.displayNewPosts unseen=topic.unseen url=topic.lastUnreadUrl}}
-  {{/if}}
-  {{#if topic.tags}}
-    <div class='discourse-tags'>
-    {{#each topic.visibleListTags as |tag|}}
-      {{discourse-tag tag}}
-    {{/each}}
-    </div>
-  {{/if}}
-  {{plugin-outlet "topic-list-tags"}}
+  <span class='link-top-line'>
+    {{raw-plugin-outlet name="topic-list-before-status"}}
+    {{raw "topic-status" topic=topic}}
+    {{topic-link topic class="raw-link raw-topic-link"}}
+    {{#if topic.featured_link}}
+      {{topic-featured-link topic}}
+    {{/if}}
+    {{raw-plugin-outlet name="topic-list-after-title"}}
+    {{#if showTopicPostBadges}}
+      {{raw "topic-post-badges" unread=topic.unread newPosts=topic.displayNewPosts unseen=topic.unseen url=topic.lastUnreadUrl}}
+    {{/if}}
+  </span>
+
+  {{discourse-tags topic mode="list"}}
   {{#if expandPinned}}
     {{raw "list/topic-excerpt" topic=topic}}
   {{/if}}
@@ -45,7 +45,7 @@
 <td class="num likes">
   {{#if hasLikes}}
     <a href='{{topic.summaryUrl}}'>
-      {{number topic.like_count}} <i class='fa fa-heart'></i></td>
+      {{number topic.like_count}} {{d-icon "heart"}}</td>
     </a>
   {{/if}}
 {{/if}}
@@ -54,7 +54,7 @@
 <td class="num likes">
   {{#if hasOpLikes}}
     <a href='{{topic.summaryUrl}}'>
-      {{number topic.op_like_count}} <i class='fa fa-heart'></i></td>
+      {{number topic.op_like_count}} {{d-icon "heart"}}</td>
     </a>
   {{/if}}
 {{/if}}

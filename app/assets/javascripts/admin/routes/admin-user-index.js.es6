@@ -1,4 +1,3 @@
-import showModal from 'discourse/lib/show-modal';
 import Group from 'discourse/models/group';
 
 export default Discourse.Route.extend({
@@ -22,12 +21,5 @@ export default Discourse.Route.extend({
       availableGroups: this._availableGroups,
       model
     });
-  },
-
-  actions: {
-    showSuspendModal(model) {
-      showModal('modals/admin-suspend-user', { model });
-      this.controllerFor('modal').set('modalClass', 'suspend-user-modal');
-    }
   }
 });

@@ -19,17 +19,9 @@ describe Category do
     expect(cats.errors[:name]).to be_present
   end
 
-  describe "last_updated_at" do
-    it "returns a number value of when the category was last updated" do
-      last = Category.last_updated_at
-      expect(last).to be_present
-      expect(last.to_i).to eq(last)
-    end
-  end
-
   describe "resolve_permissions" do
     it "can determine read_restricted" do
-      read_restricted, resolved = Category.resolve_permissions(:everyone => :full)
+      read_restricted, resolved = Category.resolve_permissions(everyone: :full)
 
       expect(read_restricted).to be false
       expect(resolved).to be_blank
@@ -41,7 +33,7 @@ describe Category do
       category = Fabricate(:category)
       group = Fabricate(:group)
       category_group = Fabricate(:category_group, category: category, group: group)
-      expect(category.permissions_params).to eq({ "#{group.name}" => category_group.permission_type })
+      expect(category.permissions_params).to eq("#{group.name}" => category_group.permission_type)
     end
   end
 
@@ -54,7 +46,6 @@ describe Category do
       full_category = Fabricate(:category)
       can_post_category = Fabricate(:category)
       can_read_category = Fabricate(:category)
-
 
       user = Fabricate(:user)
       group = Fabricate(:group)
@@ -85,7 +76,7 @@ describe Category do
       expect(Category.scoped_to_permissions(nil, [:readonly]).count).to be(2)
 
       # everyone has special semantics, test it as well
-      can_post_category.set_permissions(:everyone => :create_post)
+      can_post_category.set_permissions(everyone: :create_post)
       can_post_category.save
 
       expect(Category.post_create_allowed(guardian).count).to be(4)
@@ -112,7 +103,7 @@ describe Category do
       category.set_permissions({})
       expect(category.read_restricted?).to be true
 
-      category.set_permissions(:everyone => :full)
+      category.set_permissions(everyone: :full)
       expect(category.read_restricted?).to be false
 
       expect(user.secure_categories).to be_empty
@@ -132,12 +123,12 @@ describe Category do
 
       group.add(user)
       category.set_permissions(group.id => :full)
-      category.save
+      category.save!
       category_2.set_permissions(group.id => :full)
-      category_2.save
+      category_2.save!
 
       expect(Category.secured).to match_array([uncategorized])
-      expect(Category.secured(Guardian.new(user))).to match_array([uncategorized,category, category_2])
+      expect(Category.secured(Guardian.new(user))).to match_array([uncategorized, category, category_2])
     end
   end
 
@@ -166,7 +157,7 @@ describe Category do
     category.save
 
     category = Category.find(category.id)
-    expect(category.custom_fields).to eq({"bob" => "marley", "jack" => "black"})
+    expect(category.custom_fields).to eq("bob" => "marley", "jack" => "black")
   end
 
   describe "short name" do
@@ -309,7 +300,8 @@ describe Category do
     it "renames the definition when renamed" do
       @category.update_attributes(name: 'Troutfishing')
       @topic.reload
-      expect(@topic.title).to match /Troutfishing/
+      expect(@topic.title).to match(/Troutfishing/)
+      expect(@topic.fancy_title).to match(/Troutfishing/)
     end
 
     it "doesn't raise an error if there is no definition topic to rename (uncategorized)" do
@@ -342,7 +334,7 @@ describe Category do
 
     it "should not set its description topic to auto-close" do
       category = Fabricate(:category, name: 'Closing Topics', auto_close_hours: 1)
-      expect(category.topic.auto_close_at).to be_nil
+      expect(category.topic.public_topic_timer).to eq(nil)
     end
 
     describe "creating a new category with the same slug" do
@@ -403,14 +395,14 @@ describe Category do
   describe 'latest' do
     it 'should be updated correctly' do
       category = Fabricate(:category)
-      post = create_post(category: category.name)
+      post = create_post(category: category.id)
 
       category.reload
       expect(category.latest_post_id).to eq(post.id)
       expect(category.latest_topic_id).to eq(post.topic_id)
 
-      post2 = create_post(category: category.name)
-      post3 = create_post(topic_id: post.topic_id, category: category.name)
+      post2 = create_post(category: category.id)
+      post3 = create_post(topic_id: post.topic_id, category: category.id)
 
       category.reload
       expect(category.latest_post_id).to eq(post3.id)
@@ -433,7 +425,7 @@ describe Category do
 
     context 'with regular topics' do
       before do
-        create_post(user: @category.user, category: @category.name)
+        create_post(user: @category.user, category: @category.id)
         Category.update_stats
         @category.reload
       end
@@ -473,9 +465,9 @@ describe Category do
 
     context 'with revised post' do
       before do
-        post = create_post(user: @category.user, category: @category.name)
+        post = create_post(user: @category.user, category: @category.id)
 
-        SiteSetting.stubs(:editing_grace_period).returns(1.minute.to_i)
+        SiteSetting.editing_grace_period = 1.minute
         post.revise(post.user, { raw: 'updated body' }, revised_at: post.updated_at + 2.minutes)
 
         Category.update_stats
@@ -521,7 +513,7 @@ describe Category do
       it "includes the parent category" do
         parent_category = Fabricate(:category, name: "parent")
         subcategory = Fabricate(:category, name: "child",
-                                parent_category_id: parent_category.id)
+                                           parent_category_id: parent_category.id)
         expect(subcategory.url).to eq "/c/parent/child"
       end
     end
@@ -615,6 +607,40 @@ describe Category do
       expect(Category.find_by_slug('awesome-category')).to eq(category)
       expect(Category.find_by_slug('awesome-sub-category', 'awesome-category')).to eq(sub_category)
     end
+  end
+
+  describe "validate email_in" do
+    let(:user) { Fabricate(:user) }
+
+    it "works with a valid email" do
+      expect(Category.new(name: 'test', user: user, email_in: 'test@example.com').valid?).to eq(true)
+    end
+
+    it "adds an error with an invalid email" do
+      category = Category.new(name: 'test', user: user, email_in: '<sup>test</sup>')
+      expect(category.valid?).to eq(false)
+      expect(category.errors.full_messages.join).not_to match(/<sup>/)
+    end
+
+    context "with a duplicate email in a group" do
+      let(:group) { Fabricate(:group, name: 'testgroup', incoming_email: 'test@example.com') }
+
+      it "adds an error with an invalid email" do
+        category = Category.new(name: 'test', user: user, email_in: group.incoming_email)
+        expect(category.valid?).to eq(false)
+      end
+    end
+
+    context "with duplicate email in a category" do
+      let!(:category) { Fabricate(:category, user: user, name: '<b>cool</b>', email_in: 'test@example.com') }
+
+      it "adds an error with an invalid email" do
+        category = Category.new(name: 'test', user: user, email_in: "test@example.com")
+        expect(category.valid?).to eq(false)
+        expect(category.errors.full_messages.join).not_to match(/<b>/)
+      end
+    end
+
   end
 
 end

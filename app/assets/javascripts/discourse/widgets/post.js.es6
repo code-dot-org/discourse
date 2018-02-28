@@ -1,12 +1,13 @@
 import PostCooked from 'discourse/widgets/post-cooked';
 import DecoratorHelper from 'discourse/widgets/decorator-helper';
 import { createWidget, applyDecorators } from 'discourse/widgets/widget';
-import { iconNode } from 'discourse/helpers/fa-icon';
+import { iconNode } from 'discourse-common/lib/icon-library';
 import { transformBasicPost } from 'discourse/lib/transform-post';
 import { h } from 'virtual-dom';
 import DiscourseURL from 'discourse/lib/url';
 import { dateNode } from 'discourse/helpers/node';
-import { translateSize, avatarUrl } from 'discourse/lib/utilities';
+import { translateSize, avatarUrl, formatUsername } from 'discourse/lib/utilities';
+import hbs from 'discourse/widgets/hbs-compiler';
 
 export function avatarImg(wanted, attrs) {
   const size = translateSize(wanted);
@@ -14,11 +15,15 @@ export function avatarImg(wanted, attrs) {
 
   // We won't render an invalid url
   if (!url || url.length === 0) { return; }
-  const title = attrs.username;
+  const title = attrs.name || formatUsername(attrs.username);
+
+  let className = 'avatar' + (
+    attrs.extraClasses ? " " + attrs.extraClasses : ""
+  );
 
   const properties = {
     attributes: { alt: '', width: size, height: size, src: Discourse.getURLWithCDN(url), title },
-    className: 'avatar'
+    className
   };
 
   return h('img', properties);
@@ -37,15 +42,31 @@ createWidget('select-post', {
   html(attrs) {
     const buttons = [];
 
-    if (attrs.replyCount > 0 && !attrs.selected) {
-      buttons.push(this.attach('button', { label: 'topic.multi_select.select_replies', action: 'selectReplies' }));
+    if (!attrs.selected && attrs.post_number > 1) {
+      if (attrs.replyCount > 0) {
+        buttons.push(this.attach('button', {
+          label: 'topic.multi_select.select_replies.label',
+          title: 'topic.multi_select.select_replies.title',
+          action: 'selectReplies',
+          className: 'select-replies'
+        }));
+      }
+      buttons.push(this.attach('button', {
+        label: 'topic.multi_select.select_below.label',
+        title: 'topic.multi_select.select_below.title',
+        action: 'selectBelow',
+        className: 'select-below'
+      }));
     }
 
-    const selectPostKey = attrs.selected ? 'topic.multi_select.selected' : 'topic.multi_select.select';
-    buttons.push(this.attach('button', { className: 'select-post',
-                                         label: selectPostKey,
-                                         labelOptions: { count: attrs.selectedPostsCount },
-                                         action: 'selectPost' }));
+    const key = `topic.multi_select.${attrs.selected ? 'selected' : 'select' }_post`;
+    buttons.push(this.attach('button', {
+      label: key + ".label",
+      title: key + ".title",
+      action: 'togglePostSelection',
+      className: 'select-post'
+    }));
+
     return buttons;
   }
 });
@@ -68,7 +89,7 @@ createWidget('reply-to-tab', {
               username: attrs.replyToUsername
             }),
             ' ',
-            h('span', attrs.replyToUsername)];
+            h('span', formatUsername(attrs.replyToUsername))];
   },
 
   click() {
@@ -77,42 +98,57 @@ createWidget('reply-to-tab', {
   }
 });
 
+
+createWidget('post-avatar-user-info', {
+  tagName: 'div.post-avatar-user-info',
+
+  html(attrs) {
+    return this.attach('poster-name', attrs);
+  }
+});
+
 createWidget('post-avatar', {
   tagName: 'div.topic-avatar',
 
   settings: {
-    size: 'large'
+    size: 'large',
+    displayPosterName: false
   },
 
   html(attrs) {
     let body;
     if (!attrs.user_id) {
-      body = h('i', { className: 'fa fa-trash-o deleted-user-avatar' });
+      body = iconNode('trash-o', { class: 'deleted-user-avatar' });
     } else {
       body = avatarFor.call(this, this.settings.size, {
         template: attrs.avatar_template,
         username: attrs.username,
+        name: attrs.name,
         url: attrs.usernameUrl,
         className: 'main-avatar'
       });
     }
 
-    return [body, h('div.poster-avatar-extra')];
+    const result = [body];
+
+    if (attrs.primary_group_flair_url || attrs.primary_group_flair_bg_color) {
+      result.push(this.attach('avatar-flair', attrs));
+    }
+
+    result.push(h('div.poster-avatar-extra'));
+
+    if (this.settings.displayPosterName) {
+      result.push(this.attach('post-avatar-user-info', attrs));
+    }
+
+    return result;
   }
 });
 
-
-createWidget('wiki-edit-button', {
-  tagName: 'div.post-info.wiki',
-  title: 'post.wiki.about',
-
-  html() {
-    return iconNode('pencil-square-o');
-  },
-
-  click() {
-    this.sendWidgetAction('editPost');
-  }
+createWidget('post-locked-indicator', {
+  tagName: 'div.post-info.post-locked',
+  template: hbs`{{d-icon "lock"}}`,
+  title: () => I18n.t("post.locked")
 });
 
 createWidget('post-email-indicator', {
@@ -146,8 +182,16 @@ function showReplyTab(attrs, siteSettings) {
 
 createWidget('post-meta-data', {
   tagName: 'div.topic-meta-data',
+
+  settings: {
+    displayPosterName: true
+  },
+
   html(attrs) {
-    const result = [this.attach('poster-name', attrs)];
+    let result = [];
+    if (this.settings.displayPosterName) {
+      result.push(this.attach('poster-name', attrs));
+    }
 
     if (attrs.isWhisper) {
       result.push(h('div.post-info.whisper', {
@@ -155,29 +199,32 @@ createWidget('post-meta-data', {
       }, iconNode('eye-slash')));
     }
 
+    const lastWikiEdit = attrs.wiki && attrs.lastWikiEdit && new Date(attrs.lastWikiEdit);
     const createdAt = new Date(attrs.created_at);
-    if (createdAt) {
-      result.push(h('div.post-info',
-        h('a.post-date', {
-          attributes: {
-            href: attrs.shareUrl,
-            'data-share-url': attrs.shareUrl,
-            'data-post-number': attrs.post_number,
-          }
-        }, dateNode(createdAt))
-      ));
+    const date = lastWikiEdit ? dateNode(lastWikiEdit) : dateNode(createdAt);
+    const attributes = {
+      class: "post-date",
+      href: attrs.shareUrl,
+      'data-share-url': attrs.shareUrl,
+      'data-post-number': attrs.post_number
+    };
+
+    if (lastWikiEdit) {
+      attributes["class"] += " last-wiki-edit";
     }
+
+    result.push(h('div.post-info.post-date', h('a', { attributes }, date)));
 
     if (attrs.via_email) {
       result.push(this.attach('post-email-indicator', attrs));
     }
 
-    if (attrs.version > 1) {
-      result.push(this.attach('post-edits-indicator', attrs));
+    if (attrs.locked) {
+      result.push(this.attach('post-locked-indicator', attrs));
     }
 
-    if (attrs.wiki) {
-      result.push(this.attach('wiki-edit-button', attrs));
+    if (attrs.version > 1 || attrs.wiki) {
+      result.push(this.attach('post-edits-indicator', attrs));
     }
 
     if (attrs.multiSelect) {
@@ -268,17 +315,29 @@ createWidget('post-contents', {
 
     const repliesBelow = state.repliesBelow;
     if (repliesBelow.length) {
-      result.push(h('section.embedded-posts.bottom', repliesBelow.map(p => {
-        return this.attach('embedded-post', p, { model: this.store.createRecord('post', p) });
-      })));
+      result.push(h('section.embedded-posts.bottom', [
+        repliesBelow.map(p => {
+          return this.attach('embedded-post', p, { model: this.store.createRecord('post', p) });
+        }),
+        this.attach('button', {
+          title: 'post.collapse',
+          icon: 'chevron-up',
+          action: 'toggleRepliesBelow',
+          actionParam: 'true',
+          className: 'btn collapse-up'
+        })
+      ]));
     }
 
     return result;
   },
 
-  toggleRepliesBelow() {
+  toggleRepliesBelow(goToPost = 'false') {
     if (this.state.repliesBelow.length) {
       this.state.repliesBelow = [];
+      if (goToPost === 'true') {
+        DiscourseURL.routeTo(`${this.attrs.topicUrl}/${this.attrs.post_number}`);
+      }
       return;
     }
 
@@ -301,10 +360,11 @@ createWidget('post-contents', {
 createWidget('post-body', {
   tagName: 'div.topic-body.clearfix',
 
-  html(attrs) {
+  html(attrs, state) {
     const postContents = this.attach('post-contents', attrs);
-    const result = [this.attach('post-meta-data', attrs), postContents];
-
+    let result = [this.attach('post-meta-data', attrs)];
+    result = result.concat(applyDecorators(this, 'after-meta-data', attrs, state));
+    result.push(postContents);
     result.push(this.attach('actions-summary', attrs));
     result.push(this.attach('post-links', attrs));
     if (attrs.showTopicMap) {
@@ -345,7 +405,16 @@ createWidget('post-article', {
         return this.attach('embedded-post', p, { model: this.store.createRecord('post', p), state: { above: true } });
       });
 
-      rows.push(h('div.row', h('section.embedded-posts.top.topic-body.offset2', replies)));
+      rows.push(h('div.row', h('section.embedded-posts.top.topic-body.offset2', [
+        this.attach('button', {
+          title: 'post.collapse',
+          icon: 'chevron-down',
+          action: 'toggleReplyAbove',
+          actionParam: 'true',
+          className: 'btn collapse-down'
+        }),
+        replies
+      ])));
     }
 
     rows.push(h('div.row', [this.attach('post-avatar', attrs), this.attach('post-body', attrs)]));
@@ -357,7 +426,7 @@ createWidget('post-article', {
     return post ? post.get('topic.url') : null;
   },
 
-  toggleReplyAbove() {
+  toggleReplyAbove(goToPost = 'false') {
     const replyPostNumber = this.attrs.reply_to_post_number;
 
     // jump directly on mobile
@@ -371,6 +440,9 @@ createWidget('post-article', {
 
     if (this.state.repliesAbove.length) {
       this.state.repliesAbove = [];
+      if (goToPost === 'true') {
+        DiscourseURL.routeTo(`${this.attrs.topicUrl}/${this.attrs.post_number}`);
+      }
       return Ember.RSVP.Promise.resolve();
     } else {
       const topicUrl = this._getTopicUrl();
@@ -384,6 +456,12 @@ createWidget('post-article', {
   },
 
 });
+
+let addPostClassesCallbacks = null;
+export function addPostClassesCallback(callback) {
+  addPostClassesCallbacks = addPostClassesCallbacks || [];
+  addPostClassesCallbacks.push(callback);
+}
 
 export default createWidget('post', {
   buildKey: attrs => `post-${attrs.id}`,
@@ -413,6 +491,14 @@ export default createWidget('post', {
       classNames.push('moderator');
     } else {
       classNames.push('regular');
+    }
+    if (addPostClassesCallbacks) {
+      for(let i=0; i<addPostClassesCallbacks.length; i++) {
+        let pluginClasses = addPostClassesCallbacks[i].call(this, attrs);
+        if (pluginClasses) {
+          classNames.push.apply(classNames, pluginClasses);
+        }
+      }
     }
     return classNames;
   },
@@ -454,11 +540,11 @@ export default createWidget('post', {
 
   undoPostAction(typeId) {
     const post = this.model;
-    return post.get('actions_summary').findProperty('id', typeId).undo(post);
+    return post.get('actions_summary').findBy('id', typeId).undo(post);
   },
 
   deferPostActionFlags(typeId) {
     const post = this.model;
-    return post.get('actions_summary').findProperty('id', typeId).deferFlags(post);
+    return post.get('actions_summary').findBy('id', typeId).deferFlags(post);
   }
 });

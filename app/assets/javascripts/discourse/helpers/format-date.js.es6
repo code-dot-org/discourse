@@ -1,4 +1,4 @@
-import { registerUnbound } from 'discourse/lib/helpers';
+import { registerUnbound } from 'discourse-common/lib/helpers';
 import { autoUpdatingRelativeAge } from 'discourse/lib/formatter';
 
 /**
@@ -25,5 +25,3 @@ registerUnbound('format-date', function(val, params) {
     return new Handlebars.SafeString(autoUpdatingRelativeAge(date, {format: format, title: title, leaveAgo: leaveAgo}));
   }
 });
-
-

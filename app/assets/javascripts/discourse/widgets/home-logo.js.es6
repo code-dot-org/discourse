@@ -1,6 +1,6 @@
 import { createWidget } from 'discourse/widgets/widget';
 import { h } from 'virtual-dom';
-import { iconNode } from 'discourse/helpers/fa-icon';
+import { iconNode } from 'discourse-common/lib/icon-library';
 import { wantsNewWindow } from 'discourse/lib/intercept-click';
 import DiscourseURL from 'discourse/lib/url';
 
@@ -8,7 +8,7 @@ export default createWidget('home-logo', {
   tagName: 'div.title',
 
   settings: {
-    href: '/'
+    href: Discourse.getURL("/")
   },
 
   href() {
@@ -38,7 +38,7 @@ export default createWidget('home-logo', {
     } else if (logoUrl.length) {
       return h('img#site-logo.logo-big', { key: 'logo-big', attributes: { src: logoUrl, alt: title } });
     } else {
-      return h('h2#site-text-logo.text-logo', { key: 'logo-text' }, title);
+      return h('h1#site-text-logo.text-logo', { key: 'logo-text' }, title);
     }
   },
 

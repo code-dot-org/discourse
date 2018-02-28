@@ -5,9 +5,9 @@ class Admin::BadgesController < Admin::AdminController
       badge_types: BadgeType.all.order(:id).to_a,
       badge_groupings: BadgeGrouping.all.order(:position).to_a,
       badges: Badge.includes(:badge_grouping)
-                    .includes(:badge_type)
-                    .references(:badge_grouping)
-                    .order('badge_groupings.position, badge_type_id, badges.name').to_a,
+        .includes(:badge_type)
+        .references(:badge_grouping)
+        .order('badge_groupings.position, badge_type_id, badges.name').to_a,
       protected_system_fields: Badge.protected_system_fields,
       triggers: Badge.trigger_hash
     }
@@ -15,6 +15,12 @@ class Admin::BadgesController < Admin::AdminController
   end
 
   def preview
+
+    unless SiteSetting.enable_badge_sql
+      render json: "preview not allowed", status: 403
+      return
+    end
+
     render json: BadgeGranter.preview(params[:sql],
                                       target_posts: params[:target_posts] == "true",
                                       explain: params[:explain] == "true",
@@ -37,9 +43,9 @@ class Admin::BadgesController < Admin::AdminController
     badge_groupings = BadgeGrouping.all.order(:position).to_a
     ids = params[:ids].map(&:to_i)
 
-    params[:names].each_with_index do |name,index|
+    params[:names].each_with_index do |name, index|
       id = ids[index].to_i
-      group = badge_groupings.find{|b| b.id == id} || BadgeGrouping.new()
+      group = badge_groupings.find { |b| b.id == id } || BadgeGrouping.new()
       group.name = name
       group.position = index
       group.save
@@ -60,7 +66,7 @@ class Admin::BadgesController < Admin::AdminController
     if errors.present?
       render_json_error errors
     else
-      render_serialized(badge, BadgeSerializer, root: "badge")
+      render_serialized(badge, AdminBadgeSerializer, root: "badge")
     end
   end
 
@@ -72,13 +78,13 @@ class Admin::BadgesController < Admin::AdminController
     if errors.present?
       render_json_error errors
     else
-      render_serialized(badge, BadgeSerializer, root: "badge")
+      render_serialized(badge, AdminBadgeSerializer, root: "badge")
     end
   end
 
   def destroy
     find_badge.destroy
-    render nothing: true
+    render body: nil
   end
 
   private
@@ -89,12 +95,14 @@ class Admin::BadgesController < Admin::AdminController
 
     # Options:
     #   :new - reset the badge id to nil before saving
-    def update_badge_from_params(badge, opts={})
+    def update_badge_from_params(badge, opts = {})
       errors = []
       Badge.transaction do
-        allowed = Badge.column_names.map(&:to_sym)
+        allowed  = Badge.column_names.map(&:to_sym)
         allowed -= [:id, :created_at, :updated_at, :grant_count]
         allowed -= Badge.protected_system_fields if badge.system?
+        allowed -= [:query] unless SiteSetting.enable_badge_sql
+
         params.permit(*allowed)
 
         allowed.each do |key|
@@ -103,7 +111,9 @@ class Admin::BadgesController < Admin::AdminController
 
         # Badge query contract checks
         begin
-          BadgeGranter.contract_checks!(badge.query, { target_posts: badge.target_posts, trigger: badge.trigger })
+          if SiteSetting.enable_badge_sql
+            BadgeGranter.contract_checks!(badge.query, target_posts: badge.target_posts, trigger: badge.trigger)
+          end
         rescue => e
           errors << e.message
           raise ActiveRecord::Rollback

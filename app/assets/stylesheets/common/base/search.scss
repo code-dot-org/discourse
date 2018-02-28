@@ -1,3 +1,7 @@
+.fps-invalid {
+  margin-bottom: 1em;
+}
+
 .fps-result {
 
   .author {
@@ -6,8 +10,8 @@
   }
 
   .like-count {
-    color: dark-light-choose(scale-color($primary, $lightness: 40%), scale-color($secondary, $lightness: 60%));
-    .fa { color: $love; font-size: 12px; }
+    color: dark-light-choose($primary-medium, $secondary-medium);
+    .fa { color: $love; font-size: $font-down-1; }
   }
 
   .badge-wrapper span.badge-category {
@@ -28,38 +32,38 @@
     margin-right: 14px;
   }
   a.search-link:visited .topic-title {
-    color: scale-color($tertiary, $lightness: 15%);
+    color: $tertiary-high;
   }
   .search-link {
     .topic-statuses, .topic-title {
-      font-size: 1.3em;
-      line-height: 25px;
+      font-size: $font-up-2;
+      line-height: $line-height-large;
     }
 
     .topic-statuses {
       float: none;
       display: inline-block;
-      color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
-      font-size: 1.0em;
+      color: dark-light-choose($primary-medium, $secondary-medium);
+      font-size: $font-0;
     }
   }
   .blurb {
-    font-size: 1.0em;
-    line-height: 20px;
+    font-size: $font-0;
+    line-height: $line-height-large;
     word-wrap: break-word;
     max-width: 640px;
-    color: dark-light-choose(scale-color($primary, $lightness: 40%), scale-color($secondary, $lightness: 60%));
+    color: dark-light-choose($primary-medium, $secondary-medium);
     .date {
-      color: dark-light-choose(scale-color($primary, $lightness: 60%), scale-color($secondary, $lightness: 40%));
+      color: dark-light-choose($primary-medium, $secondary-high);
     }
 
     .search-highlight {
-      color: dark-light-choose(scale-color($primary, $lightness: 10%), scale-color($secondary, $lightness: 90%));
+      color: dark-light-choose($primary, $secondary-low);
     }
   }
 
   .discourse-tag {
-    font-size: 0.8em;
+    font-size: $font-down-1;
   }
 }
 
@@ -76,16 +80,26 @@
   }
   a {
     margin-right: 15px;
-    font-size: 12px;
+    font-size: $font-down-1;
     padding: 2px 5px;
   }
 }
 
 .search.row {
   margin-bottom: 15px;
-  input {
-    height: 22px;
-    padding-left: 6px;
+  .input-xxlarge {
+    width: 100%;
+  }
+
+  .search-bar {
+    display: flex;
+    margin-bottom: 10px;
+    max-width: 780px;
+    input {
+      height: 22px;
+      padding-left: 6px;
+      margin: 0 5px 0 0;
+    }
   }
 
   .new-topic-btn {
@@ -93,6 +107,9 @@
   }
 }
 
+.no-results-suggestion {
+  margin-top: 30px;
+}
 .search-footer {
   margin-bottom: 30px;
 }
@@ -102,26 +119,28 @@
 }
 
 .search-title {
-
+  position: relative;
+  margin: 10px 0 15px;
+  max-width: 780px;
+  border-bottom: 3px solid $primary-low;
+  width: 100%;
   .term {
     font-weight: bold;
   }
 
-  position: relative;
   .result-count {
     float: left;
+    margin-bottom: 4px;
     span {
-      line-height: 28px;
+      line-height: $line-height-large;
       height: 28px;
       display: inline-block;
     }
-    margin-bottom: 4px;
   }
-  margin: 10px 0 15px;
-  max-width: 780px;
-  border-bottom: 3px solid dark-light-diff($primary, $secondary, 90%, -75%);
-  width: 100%;
+
   .sort-by {
+    float: right;
+    margin-bottom: 4px;
     .desc {
       margin-right: 5px;
     }
@@ -130,7 +149,65 @@
       width: auto;
       min-width: 150px;
     }
-    float: right;
-    margin-bottom: 4px;
+  }
+}
+
+.google-search-form {
+  margin-top: 2em;
+}
+
+.search-advanced {
+  display: flex;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  max-width: 780px;
+  .search-advanced-options {
+    border: 1px solid $primary-low;
+    padding: 0 20px;
+    width: 100%;
+    .date-picker-wrapper {
+      vertical-align: top;
+    }
+    @media screen and (max-width: 715px) {
+      padding: 0 10px;
+      #postTime {
+        margin: 0 0 5px 0;
+      }
+    }
+  }
+
+  .search-advanced-btn {
+    flex: 1 1 100%;
+    width: 100%;
+    text-align: left;
+    font-weight: bold;
+  }
+
+  .tag-chooser {
+    width: 70%;
+  }
+
+  .container {
+    display: flex;
+    flex: 1 1 100%;
+    padding: 15px 0 10px 0;
+    .all-tags {
+      margin-bottom: 0;
+    }
+    @media screen and (max-width: 600px) {
+      flex-wrap: wrap;
+    }
+    &:not(:first-of-type) {
+      border-top: 1px solid $primary-low;
+    }
+    .control-group {
+      flex: 1 1 100%;
+      @media screen and (max-width: 600px) {
+        margin: 0;
+        &:nth-of-type(2) {
+          margin-top: 5px;
+        }
+      }
+    }
   }
 }

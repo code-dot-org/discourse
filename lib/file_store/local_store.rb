@@ -9,7 +9,7 @@ module FileStore
       "#{Discourse.base_uri}#{path}"
     end
 
-    def remove_file(url)
+    def remove_file(url, _)
       return unless is_relative?(url)
       source = "#{public_dir}#{url}"
       return unless File.exists?(source)
@@ -59,7 +59,11 @@ module FileStore
     end
 
     def purge_tombstone(grace_period)
-      `find #{tombstone_dir} -mtime +#{grace_period} -type f -delete`
+      if Dir.exists?(Discourse.store.tombstone_dir)
+        Discourse::Utils.execute_command(
+          'find', tombstone_dir, '-mtime', "+#{grace_period}", '-type', 'f', '-delete'
+        )
+      end
     end
 
     def get_path_for(type, upload_id, sha, extension)

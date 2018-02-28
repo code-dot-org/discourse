@@ -32,6 +32,10 @@ class PostCreator
   #   via_email               - Mark this post as arriving via email
   #   raw_email               - Full text of arriving email (to store)
   #   action_code             - Describes a small_action post (optional)
+  #   skip_jobs               - Don't enqueue jobs when creation succeeds. This is needed if you
+  #                             wrap `PostCreator` in a transaction, as the sidekiq jobs could
+  #                             dequeue before the commit finishes. If you do this, be sure to
+  #                             call `enqueue_jobs` after the transaction is comitted.
   #
   #   When replying to a topic:
   #     topic_id              - topic we're replying to
@@ -88,12 +92,45 @@ class PostCreator
       return false
     end
 
+    if @opts[:target_usernames].present? && !skip_validations? && !@user.staff?
+      names = @opts[:target_usernames].split(',')
+
+      # Make sure max_allowed_message_recipients setting is respected
+      max_allowed_message_recipients = SiteSetting.max_allowed_message_recipients
+
+      if names.length > max_allowed_message_recipients
+        errors[:base] << I18n.t(:max_pm_recepients,
+          recipients_limit: max_allowed_message_recipients
+        )
+
+        return false
+      end
+
+      # Make sure none of the users have muted the creator
+      users = User.where(username: names).pluck(:id, :username).to_h
+
+      User
+        .joins("LEFT JOIN user_options ON user_options.user_id = users.id")
+        .joins("LEFT JOIN muted_users ON muted_users.muted_user_id = #{@user.id.to_i}")
+        .where("user_options.user_id IS NOT NULL")
+        .where("
+          (user_options.user_id IN (:user_ids) AND NOT user_options.allow_private_messages) OR
+          muted_users.user_id IN (:user_ids)
+        ", user_ids: users.keys)
+        .pluck(:id).each do |m|
+
+        errors[:base] << I18n.t(:not_accepting_pms, username: users[m])
+      end
+
+      return false if errors[:base].present?
+    end
+
     if new_topic?
       topic_creator = TopicCreator.new(@user, guardian, @opts)
       return false unless skip_validations? || validate_child(topic_creator)
     else
       @topic = Topic.find_by(id: @opts[:topic_id])
-      if (@topic.blank? || !guardian.can_create?(Post, @topic))
+      unless @topic.present? && (@opts[:skip_guardian] || guardian.can_create?(Post, @topic))
         errors[:base] << I18n.t(:topic_not_found)
         return false
       end
@@ -142,13 +179,16 @@ class PostCreator
     end
 
     if @post && errors.blank?
+      # update counters etc.
+      @post.topic.reload
+
       publish
 
       track_latest_on_category
-      enqueue_jobs
+      enqueue_jobs unless @opts[:skip_jobs]
       BadgeGranter.queue_badge_grant(Badge::Trigger::PostRevision, post: @post)
 
-      trigger_after_events(@post)
+      trigger_after_events unless opts[:skip_events]
 
       auto_close unless @opts[:import_mode]
     end
@@ -164,10 +204,24 @@ class PostCreator
     create
 
     if !self.errors.full_messages.empty?
-      raise ActiveRecord::RecordNotSaved.new("Failed to create post", self)
+      raise ActiveRecord::RecordNotSaved.new("Failed to create post: #{self.errors.full_messages}")
     end
 
     @post
+  end
+
+  def enqueue_jobs
+    return unless @post && !@post.errors.present?
+
+    PostJobsEnqueuer.new(@post, @topic, new_topic?,
+      import_mode: @opts[:import_mode],
+      post_alert_options: @opts[:post_alert_options]
+    ).enqueue_jobs
+  end
+
+  def trigger_after_events
+    DiscourseEvent.trigger(:topic_created, @post.topic, @opts, @user) unless @opts[:topic_id]
+    DiscourseEvent.trigger(:post_created, @post, @opts, @user)
   end
 
   def self.track_post_stats
@@ -190,7 +244,9 @@ class PostCreator
     set_reply_info(post)
 
     post.word_count = post.raw.scan(/[[:word:]]+/).size
-    post.post_number ||= Topic.next_post_number(post.topic_id, post.reply_to_post_number.present?)
+
+    whisper = post.post_type == Post.types[:whisper]
+    post.post_number ||= Topic.next_post_number(post.topic_id, post.reply_to_post_number.present?, whisper)
 
     cooking_options = post.cooking_options || {}
     cooking_options[:topic_id] = post.topic_id
@@ -204,8 +260,8 @@ class PostCreator
     return unless post.reply_to_post_number.present?
 
     reply_info = Post.where(topic_id: post.topic_id, post_number: post.reply_to_post_number)
-                     .select(:user_id, :post_type)
-                     .first
+      .select(:user_id, :post_type)
+      .first
 
     if reply_info.present?
       post.reply_to_user_id ||= reply_info.user_id
@@ -231,11 +287,6 @@ class PostCreator
         composer_open_duration_msecs: @opts[:composer_open_duration_msecs] || 0
       )
     end
-  end
-
-  def trigger_after_events(post)
-    DiscourseEvent.trigger(:topic_created, post.topic, @opts, @user) unless @opts[:topic_id]
-    DiscourseEvent.trigger(:post_created, post, @opts, @user)
   end
 
   def auto_close
@@ -281,11 +332,11 @@ class PostCreator
 
   def handle_spam
     if @spam
-      GroupMessage.create( Group[:moderators].name,
+      GroupMessage.create(Group[:moderators].name,
                            :spam_post_blocked,
-                           { user: @user,
-                             limit_once_per: 24.hours,
-                             message_params: {domains: @post.linked_hosts.keys.join(', ')} } )
+                           user: @user,
+                           limit_once_per: 24.hours,
+                           message_params: { domains: @post.linked_hosts.keys.join(', ') })
     elsif @post && errors.blank? && !skip_validations?
       SpamRulesEnforcer.enforce!(@post)
     end
@@ -304,7 +355,7 @@ class PostCreator
     unless @topic.topic_allowed_users.where(user_id: @user.id).exists?
       unless @topic.topic_allowed_groups.where('group_id IN (
                                               SELECT group_id FROM group_users where user_id = ?
-                                           )',@user.id).exists?
+                                           )', @user.id).exists?
         @topic.topic_allowed_users.create!(user_id: @user.id)
       end
     end
@@ -324,6 +375,20 @@ class PostCreator
 
   private
 
+  # TODO: merge the similar function in TopicCreator and fix parameter naming for `category`
+  def find_category_id
+    @opts.delete(:category) if @opts[:archetype].present? && @opts[:archetype] == Archetype.private_message
+
+    category =
+      if (@opts[:category].is_a? Integer) || (@opts[:category] =~ /^\d+$/)
+        Category.find_by(id: @opts[:category])
+      else
+        Category.find_by(name_lower: @opts[:category].try(:downcase))
+      end
+
+    category&.id
+  end
+
   def create_topic
     return if @topic
     begin
@@ -334,24 +399,35 @@ class PostCreator
     end
     @post.topic_id = @topic.id
     @post.topic = @topic
+    if @topic && @topic.category && @topic.category.all_topics_wiki
+      @post.wiki = true
+    end
   end
 
   def update_topic_stats
-    return if @post.post_type == Post.types[:whisper]
-
-    attrs = {
-      last_posted_at: @post.created_at,
-      last_post_user_id: @post.user_id,
-      word_count: (@topic.word_count || 0) + @post.word_count,
-    }
-    attrs[:excerpt] = @post.excerpt(220, strip_links: true) if new_topic?
-    attrs[:bumped_at] = @post.created_at unless @post.no_bump
-    @topic.update_attributes(attrs)
+    if @post.post_type != Post.types[:whisper]
+      attrs = {}
+      attrs[:last_posted_at] = @post.created_at
+      attrs[:last_post_user_id] = @post.user_id
+      attrs[:word_count] = (@topic.word_count || 0) + @post.word_count
+      attrs[:excerpt] = @post.excerpt(220, strip_links: true) if new_topic?
+      attrs[:bumped_at] = @post.created_at unless @post.no_bump
+      attrs[:updated_at] = 'now()'
+      @topic.update_columns(attrs)
+    end
   end
 
   def update_topic_auto_close
-    if @topic.auto_close_based_on_last_post && @topic.auto_close_hours
-      @topic.set_auto_close(@topic.auto_close_hours).save
+    topic_timer = @topic.public_topic_timer
+
+    if topic_timer &&
+       topic_timer.based_on_last_post &&
+       topic_timer.duration > 0
+
+      @topic.set_or_create_timer(TopicTimer.types[:close],
+        topic_timer.duration,
+        based_on_last_post: topic_timer.based_on_last_post
+      )
     end
   end
 
@@ -398,7 +474,7 @@ class PostCreator
     end
 
     unless @post.topic.private_message?
-      @user.user_stat.post_count += 1
+      @user.user_stat.post_count += 1 if @post.post_type == Post.types[:regular] && !@post.is_first_post?
       @user.user_stat.topic_count += 1 if @post.is_first_post?
     end
 
@@ -434,7 +510,6 @@ class PostCreator
                        last_read_post_number: @post.post_number,
                        highest_seen_post_number: @post.post_number)
 
-
       # assume it took us 5 seconds of reading time to make a post
       PostTiming.record_timing(topic_id: @post.topic_id,
                                user_id: @post.user_id,
@@ -443,15 +518,11 @@ class PostCreator
     end
 
     if @user.staged
-      TopicUser.auto_watch(@user.id, @topic.id)
+      TopicUser.auto_notification_for_staging(@user.id, @topic.id, TopicUser.notification_reasons[:auto_watch])
     else
-      TopicUser.auto_track(@user.id, @topic.id, TopicUser.notification_reasons[:created_post])
+      notification_level = @user.user_option.notification_level_when_replying || NotificationLevels.topic_levels[:tracking]
+      TopicUser.auto_notification(@user.id, @topic.id, TopicUser.notification_reasons[:created_post], notification_level)
     end
-  end
-
-  def enqueue_jobs
-    return unless @post && !@post.errors.present?
-    PostJobsEnqueuer.new(@post, @topic, new_topic?, {import_mode: @opts[:import_mode]}).enqueue_jobs
   end
 
   def new_topic?

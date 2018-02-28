@@ -5,11 +5,15 @@ require_dependency 'gaps'
 
 class TopicView
 
-  attr_reader :topic, :posts, :guardian, :filtered_posts, :chunk_size
+  attr_reader :topic, :posts, :guardian, :filtered_posts, :chunk_size, :print, :message_bus_last_id
   attr_accessor :draft, :draft_key, :draft_sequence, :user_custom_fields, :post_custom_fields
 
   def self.slow_chunk_size
     10
+  end
+
+  def self.print_chunk_size
+    1000
   end
 
   def self.chunk_size
@@ -33,10 +37,12 @@ class TopicView
     wpcf.flatten.uniq
   end
 
-  def initialize(topic_id, user=nil, options={})
+  def initialize(topic_id, user = nil, options = {})
+    @message_bus_last_id = MessageBus.last_id("/topic/#{topic_id}")
     @user = user
     @guardian = Guardian.new(@user)
     @topic = find_topic(topic_id)
+    @print = options[:print].present?
     check_and_raise_exceptions
 
     options.each do |key, value|
@@ -44,7 +50,13 @@ class TopicView
     end
 
     @page = 1 if (!@page || @page.zero?)
-    @chunk_size = options[:slow_platform] ? TopicView.slow_chunk_size : TopicView.chunk_size
+    @chunk_size =
+      case
+      when options[:slow_platform] then TopicView.slow_chunk_size
+      when @print then TopicView.print_chunk_size
+      else TopicView.chunk_size
+      end
+
     @limit ||= @chunk_size
 
     setup_filtered_posts
@@ -55,15 +67,13 @@ class TopicView
     filter_posts(options)
 
     if @posts
-      added_fields = User.whitelisted_user_custom_fields(@guardian)
-      if added_fields.present?
-        @user_custom_fields = User.custom_fields_for_ids(@posts.map(&:user_id), added_fields)
+      if (added_fields = User.whitelisted_user_custom_fields(@guardian)).present?
+        @user_custom_fields = User.custom_fields_for_ids(@posts.pluck(:user_id), added_fields)
       end
-    end
 
-    whitelisted_fields = TopicView.whitelisted_post_custom_fields(@user)
-    if whitelisted_fields.present? && @posts
-      @post_custom_fields = Post.custom_fields_for_ids(@posts.map(&:id), whitelisted_fields)
+      if (whitelisted_fields = TopicView.whitelisted_post_custom_fields(@user)).present?
+        @post_custom_fields = Post.custom_fields_for_ids(@posts.pluck(:id), whitelisted_fields)
+      end
     end
 
     @draft_key = @topic.draft_key
@@ -71,13 +81,16 @@ class TopicView
   end
 
   def canonical_path
-    path = @topic.relative_url
-    path << if @post_number
-      page = ((@post_number.to_i - 1) / @limit) + 1
-      (page > 1) ? "?page=#{page}" : ""
-    else
-      (@page && @page.to_i > 1) ? "?page=#{@page}" : ""
-    end
+    path = relative_url
+
+    path <<
+      if @post_number
+        page = ((@post_number.to_i - 1) / @limit) + 1
+        (page > 1) ? "?page=#{page}" : ""
+      else
+        (@page && @page.to_i > 1) ? "?page=#{@page}" : ""
+      end
+
     path
   end
 
@@ -113,28 +126,32 @@ class TopicView
 
   def prev_page_path
     if prev_page > 1
-      "#{@topic.relative_url}?page=#{prev_page}"
+      "#{relative_url}?page=#{prev_page}"
     else
-      @topic.relative_url
+      relative_url
     end
   end
 
   def next_page_path
-    "#{@topic.relative_url}?page=#{next_page}"
+    "#{relative_url}?page=#{next_page}"
   end
 
   def absolute_url
-    "#{Discourse.base_url}#{@topic.relative_url}"
+    "#{Discourse.base_url}#{relative_url}"
   end
 
   def relative_url
-    @topic.relative_url
+    "#{@topic.relative_url}#{@print ? '/print' : ''}"
   end
 
   def page_title
     title = @topic.title
-    if SiteSetting.topic_page_title_includes_category && @topic.category_id != SiteSetting.uncategorized_category_id && @topic.category_id && @topic.category
-      title += " - #{topic.category.name}"
+    if SiteSetting.topic_page_title_includes_category
+      if @topic.category_id != SiteSetting.uncategorized_category_id && @topic.category_id && @topic.category
+        title += " - #{@topic.category.name}"
+      elsif SiteSetting.tagging_enabled && @topic.tags.exists?
+        title += " - #{@topic.tags.order('tags.topic_count DESC').first.name}"
+      end
     end
     title
   end
@@ -147,21 +164,21 @@ class TopicView
     return @desired_post if @desired_post.present?
     return nil if posts.blank?
 
-    @desired_post = posts.detect {|p| p.post_number == @post_number.to_i}
+    @desired_post = posts.detect { |p| p.post_number == @post_number.to_i }
     @desired_post ||= posts.first
     @desired_post
   end
 
-  def summary
+  def summary(opts = {})
     return nil if desired_post.blank?
     # TODO, this is actually quite slow, should be cached in the post table
-    excerpt = desired_post.excerpt(500, strip_links: true, text_entities: true)
+    excerpt = desired_post.excerpt(500, opts.merge(strip_links: true, text_entities: true))
     (excerpt || "").gsub(/\n/, ' ').strip
   end
 
   def read_time
     return nil if @post_number.present? && @post_number.to_i != 1 # only show for topic URLs
-    (@topic.word_count/SiteSetting.read_time_word_count).floor if @topic.word_count
+    (@topic.word_count / SiteSetting.read_time_word_count).floor if @topic.word_count
   end
 
   def like_count
@@ -171,10 +188,14 @@ class TopicView
 
   def image_url
     if @post_number.present? && @post_number.to_i != 1 && @desired_post.present?
-      # show poster avatar
-      @desired_post.user.avatar_template_url.gsub("{size}", "100") if @desired_post.user
+      if @desired_post.image_url.present?
+        @desired_post.image_url
+      elsif @desired_post.user
+        # show poster avatar
+        @desired_post.user.avatar_template_url.gsub("{size}", "200")
+      end
     else
-      @topic.image_url || SiteSetting.default_opengraph_image_url
+      @topic.image_url
     end
   end
 
@@ -217,7 +238,6 @@ class TopicView
     filter_posts_in_range(min_idx, max_idx)
   end
 
-
   def filter_posts_paged(page)
     page = [page, 1].max
     min = @limit * (page - 1)
@@ -230,7 +250,7 @@ class TopicView
     filter_posts_in_range(min, max)
   end
 
-  def filter_best(max, opts={})
+  def filter_best(max, opts = {})
     filter = FilterBestPosts.new(@topic, @filtered_posts, max, opts)
     @posts = filter.posts
     @filtered_posts = filter.filtered_posts
@@ -243,9 +263,9 @@ class TopicView
 
   def has_deleted?
     @predelete_filtered_posts.with_deleted
-                             .where("posts.deleted_at IS NOT NULL")
-                             .where("posts.post_number > 1")
-                             .exists?
+      .where("posts.deleted_at IS NOT NULL")
+      .where("posts.post_number > 1")
+      .exists?
   end
 
   def topic_user
@@ -255,19 +275,49 @@ class TopicView
     end
   end
 
+  MAX_PARTICIPANTS = 24
+
   def post_counts_by_user
-    @post_counts_by_user ||= Post.where(topic_id: @topic.id)
-                                 .where("user_id IS NOT NULL")
-                                 .group(:user_id)
-                                 .order("count_all DESC")
-                                 .limit(24)
-                                 .count
+    @post_counts_by_user ||= begin
+      post_ids = unfiltered_post_ids
+
+      return {} if post_ids.blank?
+
+      sql = <<~SQL
+        SELECT user_id, count(*) AS count_all
+          FROM posts
+         WHERE id IN (:post_ids)
+           AND user_id IS NOT NULL
+      GROUP BY user_id
+      ORDER BY count_all DESC
+         LIMIT #{MAX_PARTICIPANTS}
+      SQL
+
+      Hash[Post.exec_sql(sql, post_ids: post_ids).values]
+    end
+  end
+
+  def participant_count
+    @participant_count ||=
+      begin
+        if participants.size == MAX_PARTICIPANTS
+          sql = <<~SQL
+            SELECT COUNT(DISTINCT user_id)
+            FROM posts
+            WHERE id IN (:post_ids)
+            AND user_id IS NOT NULL
+          SQL
+          Post.exec_sql(sql, post_ids: unfiltered_post_ids).getvalue(0, 0).to_i
+        else
+          participants.size
+        end
+      end
   end
 
   def participants
     @participants ||= begin
       participants = {}
-      User.where(id: post_counts_by_user.map {|k,v| k}).each {|u| participants[u.id] = u}
+      User.where(id: post_counts_by_user.keys).includes(:primary_group).each { |u| participants[u.id] = u }
       participants
     end
   end
@@ -281,11 +331,11 @@ class TopicView
   end
 
   def links
-    @links ||= TopicLink.topic_map(guardian, @topic.id)
+    @links ||= TopicLink.topic_map(@guardian, @topic.id)
   end
 
   def link_counts
-    @link_counts ||= TopicLink.counts_for(guardian,@topic, posts)
+    @link_counts ||= TopicLink.counts_for(@guardian, @topic, posts)
   end
 
   # Are we the initial page load? If so, we can return extra information like
@@ -311,25 +361,27 @@ class TopicView
     @filtered_posts.by_newest.with_user.first(25)
   end
 
-  def current_post_ids
-    @current_post_ids ||= if @posts.is_a?(Array)
-      @posts.map {|p| p.id }
-    else
-      @posts.pluck(:post_number)
-    end
-  end
-
-  # Returns an array of [id, post_number, days_ago] tuples. `days_ago` is there for the timeline
-  # calculations.
+  # Returns an array of [id, post_number, days_ago] tuples.
+  # `days_ago` is there for the timeline calculations.
   def filtered_post_stream
-    @filtered_post_stream ||= @filtered_posts.order(:sort_order)
-                                             .pluck(:id,
-                                                    :post_number,
-                                                    'EXTRACT(DAYS FROM CURRENT_TIMESTAMP - created_at)::INT AS days_ago')
+    @filtered_post_stream ||= @filtered_posts
+      .order(:sort_order)
+      .pluck(:id, :post_number, 'EXTRACT(DAYS FROM CURRENT_TIMESTAMP - created_at)::INT AS days_ago')
   end
 
   def filtered_post_ids
-    @filtered_post_ids ||= filtered_post_stream.map {|tuple| tuple[0]}
+    @filtered_post_ids ||= filtered_post_stream.map { |tuple| tuple[0] }
+  end
+
+  def unfiltered_post_ids
+    @unfiltered_post_ids ||=
+      begin
+        if @contains_gaps
+          unfiltered_posts.pluck(:id)
+        else
+          filtered_post_ids
+        end
+      end
   end
 
   protected
@@ -341,11 +393,11 @@ class TopicView
       return result unless topic_user.present?
 
       post_numbers = PostTiming
-                .where(topic_id: @topic.id, user_id: @user.id)
-                .where(post_number: current_post_ids)
-                .pluck(:post_number)
+        .where(topic_id: @topic.id, user_id: @user.id)
+        .where(post_number: @posts.pluck(:post_number))
+        .pluck(:post_number)
 
-      post_numbers.each {|pn| result << pn}
+      post_numbers.each { |pn| result << pn }
       result
     end
   end
@@ -365,8 +417,8 @@ class TopicView
   def filter_posts_by_ids(post_ids)
     # TODO: Sort might be off
     @posts = Post.where(id: post_ids, topic_id: @topic.id)
-                 .includes(:user, :reply_to_user, :incoming_email)
-                 .order('sort_order')
+      .includes({ user: :primary_group }, :reply_to_user, :deleted_by, :incoming_email, :topic)
+      .order('sort_order')
     @posts = filter_post_types(@posts)
     @posts = @posts.with_deleted if @guardian.can_see_deleted_posts?
     @posts
@@ -377,7 +429,7 @@ class TopicView
 
     max = [max, post_count].min
 
-    return @posts = [] if min > max
+    return @posts = Post.none if min > max
 
     min = [[min, max].min, 0].max
 
@@ -417,7 +469,7 @@ class TopicView
 
     # Username filters
     if @username_filters.present?
-      usernames = @username_filters.map{|u| u.downcase}
+      usernames = @username_filters.map { |u| u.downcase }
       @filtered_posts = @filtered_posts.where('post_number = 1 OR posts.user_id IN (SELECT u.id FROM users u WHERE username_lower IN (?))', usernames)
       @contains_gaps = true
     end
@@ -440,7 +492,12 @@ class TopicView
     if @topic.present? && @topic.private_message? && @user.blank?
       raise Discourse::NotLoggedIn.new
     end
-    raise Discourse::InvalidAccess.new("can't see #{@topic}", @topic) unless guardian.can_see?(@topic)
+    # can user see this topic?
+    raise Discourse::InvalidAccess.new("can't see #{@topic}", @topic) unless @guardian.can_see?(@topic)
+    # log personal message views
+    if SiteSetting.log_personal_messages_views && @topic.present? && @topic.private_message? && @topic.all_allowed_users.where(id: @user.id).blank?
+      StaffActionLogger.new(@user).log_check_personal_message(@topic)
+    end
   end
 
   def get_minmax_ids(post_number)

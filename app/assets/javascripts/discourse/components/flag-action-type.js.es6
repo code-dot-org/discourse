@@ -2,6 +2,7 @@ import { MAX_MESSAGE_LENGTH } from 'discourse/models/post-action-type';
 import computed from 'ember-addons/ember-computed-decorators';
 
 export default Ember.Component.extend({
+  classNames: ['flag-action-type'],
 
   @computed('flag.name_key')
   customPlaceholder(nameKey) {
@@ -26,22 +27,27 @@ export default Ember.Component.extend({
   showDescription: Em.computed.not('showMessageInput'),
   isNotifyUser: Em.computed.equal('flag.name_key', 'notify_user'),
 
+  @computed('flag.description', 'flag.short_description')
+  description(long_description, short_description) {
+    return this.site.mobileView ? short_description : long_description;
+  },
+
   @computed('message.length')
   customMessageLengthClasses(messageLength) {
-    return (messageLength < Discourse.SiteSettings.min_private_message_post_length) ? "too-short" : "ok";
+    return (messageLength < Discourse.SiteSettings.min_personal_message_post_length) ? "too-short" : "ok";
   },
 
   @computed('message.length')
   customMessageLength(messageLength) {
     const len = messageLength || 0;
-    const minLen = Discourse.SiteSettings.min_private_message_post_length;
+    const minLen = Discourse.SiteSettings.min_personal_message_post_length;
     if (len === 0) {
-      return I18n.t("flagging.custom_message.at_least", { n: minLen });
+      return I18n.t("flagging.custom_message.at_least", { count: minLen });
     } else if (len < minLen) {
-      return I18n.t("flagging.custom_message.more", { n: minLen - len });
+      return I18n.t("flagging.custom_message.more", { count: minLen - len });
     } else {
       return I18n.t("flagging.custom_message.left", {
-        n: MAX_MESSAGE_LENGTH - len
+        count: MAX_MESSAGE_LENGTH - len
       });
     }
   },

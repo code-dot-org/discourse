@@ -6,6 +6,30 @@
     min-width: 96px;
     text-align: center;
   }
+
+  #revision {
+    overflow: auto;
+  }
+
+  #revision-controls {
+    display: inline-block;
+    margin-bottom: 5px;
+  }
+
+  .revision-content {
+    width: 47.5%;
+    float: left;
+    &:nth-of-type(2) {
+      margin-left: 5%;
+    }
+  }
+
+  #revision-details {
+    padding: 5px;
+    margin-top: 10px;
+    border-bottom: 3px solid $primary-low; 
+  }
+
   #revisions .row:first-of-type {
     margin-top: 10px;
   }
@@ -31,11 +55,11 @@
   }
   .diff-ins {
     color: dark-light-choose($primary, $secondary);
-    background: scale-color($success, $lightness: 90%);
+    background: $success-low;
   }
   ins {
     color: $success;
-    background: scale-color($success, $lightness: 90%);
+    background: $success-low;
   }
   del, .diff-del {
     code, img {
@@ -58,11 +82,11 @@
     filter: alpha(opacity=50);
   }
   .diff-del {
-    background: scale-color($danger, $lightness: 60%);
+    background: $danger-low;
   }
   del {
     color: $danger;
-    background: scale-color($danger, $lightness: 60%);
+    background: $danger-low;
   }
   span.date {
     font-weight: bold;
@@ -71,7 +95,7 @@
     background-color: lighten($highlight, 23%);
     padding: 3px 5px 5px 5px;
   }
-  .fa-ban {
+  .d-icon-ban {
     color: #f00;
   }
   .hidden-revision-either {

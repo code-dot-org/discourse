@@ -14,6 +14,7 @@ If you don't already have a Ruby environment that's tuned to your liking, you ca
 2. Clone the Discourse repo and cd into it.
 3. Run `script/osx_dev`.
 4. Review `log/osx_dev.log` to make sure everything finished successfully.
+5. Jump To [Setting up your Discourse](#setting-up-your-discourse)
 
 Of course, it is good to understand what the script is doing and why. The rest of this guide goes through what's happening.
 
@@ -98,6 +99,7 @@ Atlassian has a free Git client for OS X called [SourceTree](http://www.sourcetr
 ## Postgres 9.3
 
 OS X ships with Postgres 9.1.5, but you're better off going with the latest from Homebrew or [Postgres.app](http://postgresapp.com).
+Note that we currently do not support Postgres 10 [due to an issue with seed-fu](https://meta.discourse.org/t/discourse-appears-to-be-broken-with-postgres-10/71723).
 
 ### Using Postgres.app
 
@@ -113,7 +115,7 @@ unix_socket_directories = '/var/pgsql_socket'   # comma-separated list of direct
 #and
 unix_socket_permissions = 0777  # begin with 0 to use octal notation
 ```
-Then create the '/var/pgsql/' folder and set up the appropriate permission in your bash (this requires admin access)
+Then create the '/var/pgsql_socket/' folder and set up the appropriate permission in your bash (this requires admin access)
 ```
 sudo mkdir /var/pgsql_socket
 sudo chmod 770 /var/pgsql_socket
@@ -132,7 +134,7 @@ If you get this error when starting `psql` from the command line:
     psql: could not connect to server: No such file or directory
     Is the server running locally and accepting
     connections on Unix domain socket "/tmp/.s.PGSQL.5432"?
-    
+
 it is because it is still looking in the `/tmp` directory and not in `/var/pgsql_socket`.
 
 If running `psql -h /var/pgsql_socket` works then you need to configure the host in your `.bash_profile`:
@@ -152,7 +154,7 @@ However, the seed data currently has some dependencies on their being a 'postgre
 
 In theory, you're not setting up with vagrant, either, and shouldn't need a vagrant user; however, again, all the seed data assumes 'vagrant'. To avoid headaches, it's probably best to go with this flow, so again, we create a 'vagrant' user.
 
-    brew install postgresql # Installs 9.2
+    brew install postgresql
     ln -sfv /usr/local/opt/postgresql/*.plist ~/Library/LaunchAgents
 
     export PATH=/usr/local/opt/postgresql/bin:$PATH # You may want to put this in your default path!
@@ -161,7 +163,7 @@ In theory, you're not setting up with vagrant, either, and shouldn't need a vagr
     launchctl load ~/Library/LaunchAgents/homebrew.mxcl.postgresql.plist
 
 ### Seed data relies on both 'postgres' and 'vagrant'
-    
+
     createuser --createdb --superuser postgres
     createuser --createdb --superuser vagrant
 
@@ -181,17 +183,19 @@ You should not need to alter `/usr/local/var/postgres/pg_hba.conf`
 
 That's about it.
 
-## PhantomJS
+## Google Chrome 59+
 
-Homebrew loves you.
+Chrome is used for running QUnit tests in headless mode.
 
-    brew install phantomjs
+Download from https://www.google.com/chrome/index.html
 
 ## ImageMagick
 
-ImageMagick is used for generating avatars (including for test fixtures).
+ImageMagick is used for generating avatars (including for test fixtures). Brew installs ImageMagick 7 by default, and this version
+doesn't work with Discourse.
 
-    brew install imagemagick
+    brew install imagemagick@6
+    brew link --force imagemagick@6
 
 ImageMagick is going to want to use the Helvetica font to generate the
 letter-avatars:
@@ -204,7 +208,7 @@ mkdir ~/.magick
 cd ~/.magick
 curl http://www.imagemagick.org/Usage/scripts/imagick_type_gen > type_gen
 find /System/Library/Fonts /Library/Fonts ~/Library/Fonts -name "*.[to]tf" | perl type_gen -f - > type.xml
-cd /usr/local/Cellar/imagemagick/<version>/etc/ImageMagick-6   
+cd /usr/local/Cellar/imagemagick/<version>/etc/ImageMagick-6
 ```
 
 Edit system config file called "type.xml" and add line near end to tell IM to
@@ -228,63 +232,47 @@ config.action_mailer.smtp_settings = { address: "localhost", port: 1025 }
 Set up [MailCatcher](https://github.com/sj26/mailcatcher) so the app can intercept
 outbound email and you can verify what is being sent.
 
-## Additional Setup Tasks
-
-You may have issues installing therubyracer when running `bundle install`
-because of a dependency on libv8. This is how to fix it:
-
-```sh
-brew tap homebrew/versions
-brew uninstall v8
-brew install v8-315
-gem uninstall -a libv8
-gem uninstall -a therubyracer
-gem install libv8 -v '3.16.14.13' -- --with-system-v8
-gem install therubyracer -v '0.12.2' -- --with-v8-dir=$(brew --prefix v8-315)
-```
+## Additional Image Tooling
 
 In addition to ImageMagick we also need to install some other image related
 software:
 
 ```sh
-brew install gifsicle jpegoptim optipng
-npm install -g svgo 
-```
-
-Install jhead
-
-```sh
-curl "http://www.sentex.net/~mwandel/jhead/jhead-2.97.tar.gz" | tar xzf -
-cd jhead-2.97
-make
-make install
+brew install gifsicle jpegoptim optipng jhead
+npm install -g svgo
 ```
 
 ## Setting up your Discourse
 
 ###  Check out the repository
-
-    git@github.com:discourse/discourse.git ~/discourse
-    cd ~/discourse # Navigate into the repository, and stay there for the rest of this how-to
-
+```sh
+git clone git@github.com:discourse/discourse.git
+cd discourse # Navigate into the repository, and stay there for the rest of this how-to
+```
 ### What about the config files?
 
 If you've stuck to all the defaults above, the default `discourse.conf` and `redis.conf` should work out of the box.
 
 ### Install the needed gems
-
-    bundle install # Yes, this DOES take a while. No, it's not really cloning all of rubygems :-)
+```sh
+bundle install
+```
 
 ### Prepare your database
+```sh
+# run this if there was a pre-existing database
+bundle exec rake db:drop
+RAILS_ENV=test bundle exec rake db:drop
 
-    rake db:migrate
-    rake db:test:prepare
-    rake db:seed_fu
+# time to create the database and run migrations
+bundle exec rake db:create db:migrate
+RAILS_ENV=test bundle exec rake db:create db:migrate
+```
 
 ## Now, test it out!
-
-    bundle exec rspec
-
+```sh
+bundle exec rspec
+```
 All specs should pass
 
 ### Deal with any problems which arise.

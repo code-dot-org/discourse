@@ -2,7 +2,7 @@ require_dependency 'memory_diagnostics'
 
 class Admin::DiagnosticsController < Admin::AdminController
   layout false
-  skip_before_filter :check_xhr
+  skip_before_action :check_xhr
 
   def dump_statement_cache
     statements = Post.exec_sql("select * from pg_prepared_statements").to_a
@@ -14,7 +14,7 @@ class Admin::DiagnosticsController < Admin::AdminController
 
     text << "\n\nCOUNT #{statements.count}"
 
-    render text: text, content_type: Mime::TEXT
+    render plain: text
   end
 
   def memory_stats
@@ -33,7 +33,7 @@ class Admin::DiagnosticsController < Admin::AdminController
       text = MemoryDiagnostics.memory_report(class_report: params.key?(:full))
     end
 
-    render text: text, content_type: Mime::TEXT
+    render plain: text
   end
 
   def dump_heap
@@ -42,13 +42,13 @@ class Admin::DiagnosticsController < Admin::AdminController
       GC.start(full_mark: true)
       require 'objspace'
 
-      io = File.open("discourse-heap-#{SecureRandom.hex(3)}.json",'w')
-      ObjectSpace.dump_all(:output => io)
+      io = File.open("discourse-heap-#{SecureRandom.hex(3)}.json", 'w')
+      ObjectSpace.dump_all(output: io)
       io.close
 
-      render text: "HEAP DUMP:\n#{io.path}", content_type: Mime::TEXT
+      render plain: "HEAP DUMP:\n#{io.path}"
     rescue
-      render text: "HEAP DUMP:\nnot supported", content_type: Mime::TEXT
+      render plain: "HEAP DUMP:\nnot supported"
     end
   end
 

@@ -1,17 +1,18 @@
 class BadgeGranter
 
-  def initialize(badge, user, opts={})
+  def initialize(badge, user, opts = {})
     @badge, @user, @opts = badge, user, opts
     @granted_by = opts[:granted_by] || Discourse.system_user
     @post_id = opts[:post_id]
   end
 
-  def self.grant(badge, user, opts={})
+  def self.grant(badge, user, opts = {})
     BadgeGranter.new(badge, user, opts).grant
   end
 
   def grant
-    return if @granted_by and !Guardian.new(@granted_by).can_grant_badges?(@user)
+    return if @granted_by && !Guardian.new(@granted_by).can_grant_badges?(@user)
+    return unless @badge.enabled?
 
     find_by = { badge_id: @badge.id, user_id: @user.id }
 
@@ -36,6 +37,7 @@ class BadgeGranter
                                        post_id: @post_id,
                                        seq: seq)
 
+      return unless SiteSetting.enable_badges
         if @granted_by != Discourse.system_user
           StaffActionLogger.new(@granted_by).log_badge_grant(user_badge)
         end
@@ -49,7 +51,8 @@ class BadgeGranter
                 data: { badge_id: @badge.id,
                         badge_name: @badge.display_name,
                         badge_slug: @badge.slug,
-                        username: @user.username}.to_json
+                        badge_title: @badge.allow_title,
+                        username: @user.username }.to_json
               )
               user_badge.update_attributes notification_id: notification.id
             end
@@ -61,7 +64,7 @@ class BadgeGranter
     user_badge
   end
 
-  def self.revoke(user_badge, options={})
+  def self.revoke(user_badge, options = {})
     UserBadge.transaction do
       user_badge.destroy!
       if options[:revoked_by]
@@ -76,7 +79,7 @@ class BadgeGranter
     end
   end
 
-  def self.queue_badge_grant(type,opt)
+  def self.queue_badge_grant(type, opt)
     return unless SiteSetting.enable_badges
     payload = nil
 
@@ -105,12 +108,6 @@ class BadgeGranter
         type: "PostAction",
         post_ids: [action.post_id, action.related_post_id].compact!
       }
-    when Badge::Trigger::PostProcessed
-      user = opt[:user]
-      payload = {
-        type: "PostProcessed",
-        user_ids: [user.id]
-      }
     end
 
     $redis.lpush queue_key, payload.to_json if payload
@@ -128,16 +125,17 @@ class BadgeGranter
       limit -= 1
     end
 
-    items = items.group_by{|i| i["type"]}
+    items = items.group_by { |i| i["type"] }
 
     items.each do |type, list|
-      post_ids = list.map{|i| i["post_ids"]}.flatten.compact.uniq
-      user_ids = list.map{|i| i["user_ids"]}.flatten.compact.uniq
+      post_ids = list.flat_map { |i| i["post_ids"] }.compact.uniq
+      user_ids = list.flat_map { |i| i["user_ids"] }.compact.uniq
 
       next unless post_ids.present? || user_ids.present?
-      find_by_type(type).each{ |badge|
+
+      find_by_type(type).each do |badge|
         backfill(badge, post_ids: post_ids, user_ids: user_ids)
-      }
+      end
     end
   end
 
@@ -181,7 +179,7 @@ class BadgeGranter
   #   :trigger - the Badge::Trigger id
   #   :explain - return the EXPLAIN query
   def self.preview(sql, opts = {})
-    params = {user_ids: [], post_ids: [], backfill: true}
+    params = { user_ids: [], post_ids: [], backfill: true }
 
     BadgeGranter.contract_checks!(sql, opts)
 
@@ -191,19 +189,19 @@ class BadgeGranter
 
     grants_sql =
      if opts[:target_posts]
-      "SELECT u.id, u.username, q.post_id, t.title, q.granted_at
-    FROM(#{sql}) q
-    JOIN users u on u.id = q.user_id
-    LEFT JOIN badge_posts p on p.id = q.post_id
-    LEFT JOIN topics t on t.id = p.topic_id
-    WHERE :backfill = :backfill
-    LIMIT 10"
+       "SELECT u.id, u.username, q.post_id, t.title, q.granted_at
+     FROM(#{sql}) q
+     JOIN users u on u.id = q.user_id
+     LEFT JOIN badge_posts p on p.id = q.post_id
+     LEFT JOIN topics t on t.id = p.topic_id
+     WHERE :backfill = :backfill
+     LIMIT 10"
      else
-      "SELECT u.id, u.username, q.granted_at
-    FROM(#{sql}) q
-    JOIN users u on u.id = q.user_id
-    WHERE :backfill = :backfill
-    LIMIT 10"
+       "SELECT u.id, u.username, q.granted_at
+     FROM(#{sql}) q
+     JOIN users u on u.id = q.user_id
+     WHERE :backfill = :backfill
+     LIMIT 10"
      end
 
     query_plan = nil
@@ -221,18 +219,18 @@ class BadgeGranter
       end
     end
 
-    {grant_count: grant_count, sample: sample, query_plan: query_plan}
+    { grant_count: grant_count, sample: sample, query_plan: query_plan }
   rescue => e
-    {errors: e.message}
+    { errors: e.message }
   end
 
-  MAX_ITEMS_FOR_DELTA = 200
-  def self.backfill(badge, opts=nil)
+  MAX_ITEMS_FOR_DELTA ||= 200
+  def self.backfill(badge, opts = nil)
     return unless SiteSetting.enable_badges
-    return unless badge.query.present? && badge.enabled
+    return unless badge.enabled
+    return unless badge.query.present?
 
     post_ids = user_ids = nil
-
     post_ids = opts[:post_ids] if opts
     user_ids = opts[:user_ids] if opts
 
@@ -278,7 +276,7 @@ class BadgeGranter
             /*where*/
             RETURNING id, user_id, granted_at
             )
-            select w.*, username FROM w
+            select w.*, username, locale, (u.admin OR u.moderator) AS staff FROM w
             JOIN users u on u.id = w.user_id
             "
 
@@ -307,17 +305,33 @@ class BadgeGranter
                                  user_ids: user_ids || [-2]).each do |row|
 
       # old bronze badges do not matter
-      next if badge.badge_type_id == BadgeType::Bronze and row.granted_at < 2.days.ago
+      next if badge.badge_type_id == (BadgeType::Bronze) && row.granted_at < (2.days.ago)
 
-      notification = Notification.create!(
-                        user_id: row.user_id,
-                        notification_type: Notification.types[:granted_badge],
-                        data: {
-                          badge_id: badge.id,
-                          badge_name: badge.name,
-                          badge_slug: badge.slug,
-                          username: row.username
-      }.to_json )
+      # Try to use user locale in the badge notification if possible without too much resources
+      notification_locale =
+        if SiteSetting.allow_user_locale && row.locale.present?
+          row.locale
+        else
+          SiteSetting.default_locale
+        end
+
+      # Make this variable in this scope
+      notification = nil
+
+      next if (row.staff && badge.awarded_for_trust_level?)
+
+      I18n.with_locale(notification_locale) do
+        notification = Notification.create!(
+                          user_id: row.user_id,
+                          notification_type: Notification.types[:granted_badge],
+                          data: {
+                            badge_id: badge.id,
+                            badge_name: badge.display_name,
+                            badge_slug: badge.slug,
+                            badge_title: badge.allow_title,
+                            username: row.username
+        }.to_json)
+      end
 
       Badge.exec_sql("UPDATE user_badges SET notification_id = :notification_id WHERE id = :id",
                       notification_id: notification.id,
@@ -330,7 +344,6 @@ class BadgeGranter
     Rails.logger.error("Failed to backfill '#{badge.name}' badge: #{opts}")
     raise ex
   end
-
 
   def self.revoke_ungranted_titles!
     Badge.exec_sql("UPDATE users SET title = ''

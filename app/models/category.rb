@@ -1,11 +1,11 @@
 require_dependency 'distributed_cache'
-require_dependency 'sass/discourse_stylesheets'
 
 class Category < ActiveRecord::Base
-
+  include Searchable
   include Positionable
   include HasCustomFields
   include CategoryHashtag
+  include AnonCacheInvalidator
 
   belongs_to :topic, dependent: :destroy
   belongs_to :topic_only_relative_url,
@@ -15,6 +15,8 @@ class Category < ActiveRecord::Base
 
   belongs_to :user
   belongs_to :latest_post, class_name: "Post"
+  belongs_to :uploaded_logo, class_name: "Upload"
+  belongs_to :uploaded_background, class_name: "Upload"
 
   has_many :topics
   has_many :category_users
@@ -27,32 +29,40 @@ class Category < ActiveRecord::Base
   has_many :category_groups, dependent: :destroy
   has_many :groups, through: :category_groups
 
+  has_and_belongs_to_many :web_hooks
+
   validates :user_id, presence: true
-  validates :name, if: Proc.new { |c| c.new_record? || c.name_changed? },
+  validates :name, if: Proc.new { |c| c.new_record? || c.will_save_change_to_name? },
                    presence: true,
                    uniqueness: { scope: :parent_category_id, case_sensitive: false },
                    length: { in: 1..50 }
+  validates :num_featured_topics, numericality: { only_integer: true, greater_than: 0 }
   validate :parent_category_validator
 
   validate :email_in_validator
 
   validate :ensure_slug
+
+  after_create :create_category_definition
+
   before_save :apply_permissions
   before_save :downcase_email
   before_save :downcase_name
-  after_create :create_category_definition
-
-  after_save :publish_category
-  after_destroy :publish_category_deletion
-
-  after_update :rename_category_definition, if: :name_changed?
-
-  after_create :delete_category_permalink
-  after_update :create_category_permalink, if: :slug_changed?
 
   after_save :publish_discourse_stylesheet
+  after_save :publish_category
+  after_save :reset_topic_ids_cache
+  after_save :clear_url_cache
+  after_save :index_search
 
-  has_one :category_search_data
+  after_destroy :reset_topic_ids_cache
+  after_destroy :publish_category_deletion
+
+  after_create :delete_category_permalink
+
+  after_update :rename_category_definition, if: :saved_change_to_name?
+  after_update :create_category_permalink, if: :saved_change_to_slug?
+
   belongs_to :parent_category, class_name: 'Category'
   has_many :subcategories, class_name: 'Category', foreign_key: 'parent_category_id'
 
@@ -61,13 +71,11 @@ class Category < ActiveRecord::Base
   has_many :category_tag_groups, dependent: :destroy
   has_many :tag_groups, through: :category_tag_groups
 
-  after_save :clear_topic_ids_cache
-  after_destroy :clear_topic_ids_cache
-
   scope :latest, -> { order('topic_count DESC') }
 
   scope :secured, -> (guardian = nil) {
     ids = guardian.secure_category_ids if guardian
+
     if ids.present?
       where("NOT categories.read_restricted OR categories.id IN (:cats)", cats: ids).references(:categories)
     else
@@ -86,20 +94,18 @@ class Category < ActiveRecord::Base
   # we may consider wrapping this in another spot
   attr_accessor :displayable_topics, :permission, :subcategory_ids, :notification_level, :has_children
 
+  @topic_id_cache = DistributedCache.new('category_topic_ids')
+
   def self.topic_ids
-    @topic_ids ||= Set.new(Category.pluck(:topic_id).compact)
+    @topic_id_cache['ids'] || reset_topic_ids_cache
   end
 
-  def self.clear_topic_ids_cache
-    @topic_ids = nil
+  def self.reset_topic_ids_cache
+    @topic_id_cache['ids'] = Set.new(Category.pluck(:topic_id).compact)
   end
 
-  def clear_topic_ids_cache
-    Category.clear_topic_ids_cache
-  end
-
-  def self.last_updated_at
-    order('updated_at desc').limit(1).pluck(:updated_at).first.to_i
+  def reset_topic_ids_cache
+    Category.reset_topic_ids_cache
   end
 
   def self.scoped_to_permissions(guardian, permission_types)
@@ -130,10 +136,10 @@ class Category < ActiveRecord::Base
 
   def self.update_stats
     topics_with_post_count = Topic
-                              .select("topics.category_id, COUNT(*) topic_count, SUM(topics.posts_count) post_count")
-                              .where("topics.id NOT IN (select cc.topic_id from categories cc WHERE topic_id IS NOT NULL)")
-                              .group("topics.category_id")
-                              .visible.to_sql
+      .select("topics.category_id, COUNT(*) topic_count, SUM(topics.posts_count) post_count")
+      .where("topics.id NOT IN (select cc.topic_id from categories cc WHERE topic_id IS NOT NULL)")
+      .group("topics.category_id")
+      .visible.to_sql
 
     Category.exec_sql <<-SQL
     UPDATE categories c
@@ -172,19 +178,16 @@ SQL
     end
   end
 
-
   def visible_posts
     query = Post.joins(:topic)
-                .where(['topics.category_id = ?', self.id])
-                .where('topics.visible = true')
-                .where('posts.deleted_at IS NULL')
-                .where('posts.user_deleted = false')
+      .where(['topics.category_id = ?', self.id])
+      .where('topics.visible = true')
+      .where('posts.deleted_at IS NULL')
+      .where('posts.user_deleted = false')
     self.topic_id ? query.where(['topics.id <> ?', self.topic_id]) : query
   end
 
-
-  # Internal: Generate the text of post prompting to enter category
-  # description.
+  # Internal: Generate the text of post prompting to enter category description.
   def self.post_template
     I18n.t("category.post_template", replace_paragraph: I18n.t("category.replace_paragraph"))
   end
@@ -193,7 +196,7 @@ SQL
     t = Topic.new(title: I18n.t("category.topic_prefix", category: name), user: user, pinned_at: Time.now, category_id: id)
     t.skip_callbacks = true
     t.ignore_category_auto_close = true
-    t.set_auto_close(nil)
+    t.delete_topic_timer(TopicTimer.types[:close])
     t.save!(validate: false)
     update_column(:topic_id, t.id)
     t.posts.create(raw: post_template, user: user)
@@ -208,13 +211,12 @@ SQL
   end
 
   def description_text
-    return nil unless description
+    return nil unless self.description
 
     @@cache ||= LruRedux::ThreadSafeCache.new(1000)
     @@cache.getset(self.description) do
-      Nokogiri::HTML(self.description).text
+      Nokogiri::HTML.fragment(self.description).text.strip
     end
-
   end
 
   def duplicate_slug?
@@ -248,11 +250,11 @@ SQL
 
   def publish_category
     group_ids = self.groups.pluck(:id) if self.read_restricted
-    MessageBus.publish('/categories', {categories: ActiveModel::ArraySerializer.new([self]).as_json}, group_ids: group_ids)
+    MessageBus.publish('/categories', { categories: ActiveModel::ArraySerializer.new([self]).as_json }, group_ids: group_ids)
   end
 
   def publish_category_deletion
-    MessageBus.publish('/categories', {deleted_categories: [self.id]})
+    MessageBus.publish('/categories', deleted_categories: [self.id])
   end
 
   def parent_category_validator
@@ -313,7 +315,7 @@ SQL
   end
 
   def allowed_tags=(tag_names_arg)
-    DiscourseTagging.add_or_create_tags_by_name(self, tag_names_arg, {unlimited: true})
+    DiscourseTagging.add_or_create_tags_by_name(self, tag_names_arg, unlimited: true)
   end
 
   def allowed_tag_groups=(group_names)
@@ -327,12 +329,14 @@ SQL
   def email_in_validator
     return if self.email_in.blank?
     email_in.split("|").each do |email|
+
+      escaped = Rack::Utils.escape_html(email)
       if !Email.is_valid?(email)
-        self.errors.add(:base, I18n.t('category.errors.invalid_email_in', email: email))
+        self.errors.add(:base, I18n.t('category.errors.invalid_email_in', email: escaped))
       elsif group = Group.find_by_email(email)
-        self.errors.add(:base, I18n.t('category.errors.email_already_used_in_group', email: email, group_name: group.name))
+        self.errors.add(:base, I18n.t('category.errors.email_already_used_in_group', email: escaped, group_name: Rack::Utils.escape_html(group.name)))
       elsif category = Category.where.not(id: self.id).find_by_email(email)
-        self.errors.add(:base, I18n.t('category.errors.email_already_used_in_category', email: email, category_name: category.name))
+        self.errors.add(:base, I18n.t('category.errors.email_already_used_in_category', email: escaped, category_name: Rack::Utils.escape_html(category.name)))
       end
     end
   end
@@ -349,21 +353,21 @@ SQL
 
   def update_latest
     latest_post_id = Post
-                        .order("posts.created_at desc")
-                        .where("NOT hidden")
-                        .joins("join topics on topics.id = topic_id")
-                        .where("topics.category_id = :id", id: self.id)
-                        .limit(1)
-                        .pluck("posts.id")
-                        .first
+      .order("posts.created_at desc")
+      .where("NOT hidden")
+      .joins("join topics on topics.id = topic_id")
+      .where("topics.category_id = :id", id: self.id)
+      .limit(1)
+      .pluck("posts.id")
+      .first
 
     latest_topic_id = Topic
-                        .order("topics.created_at desc")
-                        .where("visible")
-                        .where("topics.category_id = :id", id: self.id)
-                        .limit(1)
-                        .pluck("topics.id")
-                        .first
+      .order("topics.created_at desc")
+      .where("visible")
+      .where("topics.category_id = :id", id: self.id)
+      .limit(1)
+      .pluck("topics.id")
+      .first
 
     self.update_attributes(latest_topic_id: latest_topic_id, latest_post_id: latest_post_id)
   end
@@ -374,12 +378,12 @@ SQL
     everyone = Group::AUTO_GROUPS[:everyone]
     full = CategoryGroup.permission_types[:full]
 
-    mapped = permissions.map do |group,permission|
+    mapped = permissions.map do |group, permission|
       group = group.id if group.is_a?(Group)
 
       # subtle, using Group[] ensures the group exists in the DB
-      group = Group[group.to_sym].id unless group.is_a?(Fixnum)
-      permission = CategoryGroup.permission_types[permission] unless permission.is_a?(Fixnum)
+      group = Group[group.to_sym].id unless group.is_a?(Integer)
+      permission = CategoryGroup.permission_types[permission] unless permission.is_a?(Integer)
 
       [group, permission]
     end
@@ -420,9 +424,7 @@ SQL
 
   @@url_cache = DistributedCache.new('category_url')
 
-  after_save do
-    # parent takes part in url calculation
-    # any change could invalidate multiples
+  def clear_url_cache
     @@url_cache.clear
   end
 
@@ -451,19 +453,25 @@ SQL
   # If the name changes, try and update the category definition topic too if it's
   # an exact match
   def rename_category_definition
-    old_name = changed_attributes["name"]
+    old_name = saved_changes.transform_values(&:first)["name"]
     return unless topic.present?
     if topic.title == I18n.t("category.topic_prefix", category: old_name)
-      topic.update_column(:title, I18n.t("category.topic_prefix", category: name))
+      topic.update_attribute(:title, I18n.t("category.topic_prefix", category: name))
     end
   end
 
   def create_category_permalink
-    old_slug = changed_attributes["slug"]
+    old_slug = saved_changes.transform_values(&:first)["slug"]
     if self.parent_category
-      Permalink.create(url: "c/#{self.parent_category.slug}/#{old_slug}", category_id: id)
+      url = "c/#{self.parent_category.slug}/#{old_slug}"
     else
-      Permalink.create(url: "c/#{old_slug}", category_id: id)
+      url = "c/#{old_slug}"
+    end
+
+    if Permalink.where(url: url).exists?
+      Permalink.where(url: url).update_all(category_id: id)
+    else
+      Permalink.create(url: url, category_id: id)
     end
   end
 
@@ -477,16 +485,24 @@ SQL
   end
 
   def publish_discourse_stylesheet
-    DiscourseStylesheets.cache.clear
+    Stylesheet::Manager.cache.clear
   end
 
-  def self.find_by_slug(category_slug, parent_category_slug=nil)
+  def index_search
+    SearchIndexer.index(self)
+  end
+
+  def self.find_by_slug(category_slug, parent_category_slug = nil)
     if parent_category_slug
       parent_category_id = self.where(slug: parent_category_slug, parent_category_id: nil).pluck(:id).first
       self.where(slug: category_slug, parent_category_id: parent_category_id).first
     else
       self.where(slug: category_slug, parent_category_id: nil).first
     end
+  end
+
+  def subcategory_list_includes_topics?
+    subcategory_list_style.end_with?("with_featured_topics")
   end
 end
 
@@ -522,18 +538,28 @@ end
 #  email_in_allow_strangers      :boolean          default(FALSE)
 #  topics_day                    :integer          default(0)
 #  posts_day                     :integer          default(0)
-#  logo_url                      :string
-#  background_url                :string
 #  allow_badges                  :boolean          default(TRUE), not null
 #  name_lower                    :string(50)       not null
 #  auto_close_based_on_last_post :boolean          default(FALSE)
 #  topic_template                :text
-#  suppress_from_homepage        :boolean          default(FALSE)
+#  suppress_from_latest          :boolean          default(FALSE)
 #  contains_messages             :boolean
+#  sort_order                    :string
+#  sort_ascending                :boolean
+#  uploaded_logo_id              :integer
+#  uploaded_background_id        :integer
+#  topic_featured_link_allowed   :boolean          default(TRUE)
+#  all_topics_wiki               :boolean          default(FALSE), not null
+#  show_subcategory_list         :boolean          default(FALSE)
+#  num_featured_topics           :integer          default(3)
+#  default_view                  :string(50)
+#  subcategory_list_style        :string(50)       default("rows_with_featured_topics")
+#  default_top_period            :string(20)       default("all")
+#  mailinglist_mirror            :boolean          default(FALSE), not null
 #
 # Indexes
 #
 #  index_categories_on_email_in     (email_in) UNIQUE
 #  index_categories_on_topic_count  (topic_count)
-#  unique_index_categories_on_name  (name) UNIQUE
+#  unique_index_categories_on_name  (COALESCE(parent_category_id, '-1'::integer), name) UNIQUE
 #

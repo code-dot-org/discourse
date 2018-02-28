@@ -4,9 +4,16 @@
 {{#if category}}
   {{category-title-link category=category}}
 {{/if}}
+{{#if tagGroupName}}
+  <h3>{{tagGroupName}}</h3>
+{{/if}}
 {{#each sortedTags as |tag|}}
   <div class='tag-box'>
-    {{discourse-tag tag.id}} <span class='tag-count'>x {{tag.count}}</span>
+    {{#if tag.count}}
+      {{discourse-tag tag.id}} <span class='tag-count'>x {{tag.count}}</span>
+    {{else}}
+      {{discourse-tag tag.id}}
+    {{/if}}
   </div>
 {{/each}}
 <div class="clearfix" />

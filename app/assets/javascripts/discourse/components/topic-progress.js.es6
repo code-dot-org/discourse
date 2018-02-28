@@ -2,39 +2,11 @@ import { default as computed, observes } from 'ember-addons/ember-computed-decor
 
 export default Ember.Component.extend({
   elementId: 'topic-progress-wrapper',
-  classNameBindings: ['docked', 'hidden'],
-  expanded: false,
-  toPostIndex: null,
+  classNameBindings: ['docked'],
   docked: false,
   progressPosition: null,
   postStream: Ember.computed.alias('topic.postStream'),
-  userWantsToJump: null,
   _streamPercentage: null,
-
-  init() {
-    this._super();
-    (this.get('delegated') || []).forEach(m => this.set(m, m));
-  },
-
-  @computed('userWantsToJump', 'showTimeline')
-  hidden(userWantsToJump, showTimeline) {
-    return !userWantsToJump && showTimeline;
-  },
-
-  @observes('hidden')
-  visibilityChanged() {
-    if (!this.get('hidden')) {
-      this._updateBar();
-    }
-  },
-
-  keyboardTrigger(kbdEvent) {
-    if (kbdEvent.type === 'jump') {
-      this.set('expanded', true);
-      this.set('userWantsToJump', true);
-      Ember.run.scheduleOnce('afterRender', () => this.$('.jump-form input').focus());
-    }
-  },
 
   @computed('progressPosition')
   jumpTopDisabled(progressPosition) {
@@ -48,7 +20,7 @@ export default Ember.Component.extend({
 
   @computed('postStream.loaded', 'topic.currentPost', 'postStream.filteredPostsCount')
   hideProgress(loaded, currentPost, filteredPostsCount) {
-    return (!loaded) || (!currentPost) || (filteredPostsCount < 2);
+    return (!loaded) || (!currentPost) || (!this.site.mobileView && filteredPostsCount < 2);
   },
 
   @computed('postStream.filteredPostsCount')
@@ -65,14 +37,29 @@ export default Ember.Component.extend({
     }
   },
 
+  @computed('progressPosition', 'topic.last_read_post_id')
+  showBackButton(position, lastReadId) {
+    if (!lastReadId) { return; }
+
+    const stream = this.get('postStream.stream');
+    const readPos = stream.indexOf(lastReadId) || 0;
+    return (readPos < (stream.length - 1)) && (readPos > position);
+  },
+
   @observes('postStream.stream.[]')
   _updateBar() {
     Ember.run.scheduleOnce('afterRender', this, this._updateProgressBar);
   },
 
   _topicScrolled(event) {
-    this.set('progressPosition', event.postIndex);
-    this._streamPercentage = event.percent;
+    if (this.get('docked')) {
+      this.set('progressPosition', this.get('postStream.filteredPostsCount'));
+      this._streamPercentage = 1.0;
+    } else {
+      this.set('progressPosition', event.postIndex);
+      this._streamPercentage = event.percent;
+    }
+
     this._updateBar();
   },
 
@@ -83,10 +70,15 @@ export default Ember.Component.extend({
                   .on("composer:resized", this, this._dock)
                   .on('composer:closed', this, this._dock)
                   .on("topic:scrolled", this, this._dock)
-                  .on('topic:current-post-scrolled', this, this._topicScrolled)
-                  .on('topic-progress:keyboard-trigger', this, this.keyboardTrigger);
+                  .on('topic:current-post-scrolled', this, this._topicScrolled);
 
-    Ember.run.scheduleOnce('afterRender', this, this._updateProgressBar);
+    const prevEvent = this.get('prevEvent');
+    if (prevEvent) {
+      Ember.run.scheduleOnce('afterRender', this, this._topicScrolled, prevEvent);
+    } else {
+      Ember.run.scheduleOnce('afterRender', this, this._updateProgressBar);
+    }
+    Ember.run.scheduleOnce('afterRender', this, this._dock);
   },
 
   willDestroyElement() {
@@ -95,22 +87,25 @@ export default Ember.Component.extend({
                   .off("composer:resized", this, this._dock)
                   .off('composer:closed', this, this._dock)
                   .off('topic:scrolled', this, this._dock)
-                  .off('topic:current-post-scrolled', this, this._topicScrolled)
-                  .off('topic-progress:keyboard-trigger');
+                  .off('topic:current-post-scrolled', this, this._topicScrolled);
   },
 
   _updateProgressBar() {
-    if (this.isDestroyed || this.isDestroying || this.get('hidden')) { return; }
+    if (this.isDestroyed || this.isDestroying) { return; }
 
     const $topicProgress = this.$('#topic-progress');
     // speeds up stuff, bypass jquery slowness and extra checks
     if (!this._totalWidth) {
       this._totalWidth = $topicProgress[0].offsetWidth;
     }
+
+    // Only show percentage once we have one
+    if (!this._streamPercentage) { return; }
+
     const totalWidth = this._totalWidth;
     const progressWidth = (this._streamPercentage || 0) * totalWidth;
-
     const borderSize = (progressWidth === totalWidth) ? "0px" : "1px";
+
     const $bg = $topicProgress.find('.bg');
     if ($bg.length === 0) {
       const style = `border-right-width: ${borderSize}; width: ${progressWidth}px`;
@@ -121,17 +116,26 @@ export default Ember.Component.extend({
   },
 
   _dock() {
-    const maximumOffset = $('#topic-footer-buttons').offset(),
+    const maximumOffset = $('#topic-bottom').offset(),
           composerHeight = $('#reply-control').height() || 0,
           $topicProgressWrapper = this.$(),
-          offset = window.pageYOffset || $('html').scrollTop(),
-          topicProgressHeight = $('#topic-progress').height();
+          offset = window.pageYOffset || $('html').scrollTop();
+
+    if (!$topicProgressWrapper || $topicProgressWrapper.length === 0) {
+      return;
+    }
 
     let isDocked = false;
     if (maximumOffset) {
       const threshold = maximumOffset.top;
       const windowHeight = $(window).height();
-      isDocked = offset >= threshold - windowHeight + topicProgressHeight + composerHeight;
+      const headerHeight = $('header').outerHeight(true);
+
+      if (this.capabilities.isIOS) {
+        isDocked = offset >= (threshold - windowHeight - headerHeight + composerHeight);
+      } else {
+        isDocked = offset >= (threshold - windowHeight + composerHeight);
+      }
     }
 
     const dockPos = $(document).height() - $('#topic-bottom').offset().top;
@@ -156,64 +160,15 @@ export default Ember.Component.extend({
     }
   },
 
-  keyDown(e) {
-    if (this.get('expanded')) {
-      if (e.keyCode === 13) {
-        this.$('input').blur();
-        this.send('jumpPost');
-      } else if (e.keyCode === 27) {
-        this.send('toggleExpansion');
-        this.set('userWantsToJump', false);
-      }
-    }
-  },
 
   actions: {
-    toggleExpansion(opts) {
+    toggleExpansion() {
       this.toggleProperty('expanded');
-      if (this.get('expanded')) {
-        this.set('userWantsToJump', false);
-        this.set('toPostIndex', this.get('progressPosition'));
-        if(opts && opts.highlight){
-          // TODO: somehow move to view?
-          Em.run.next(function(){
-            $('.jump-form input').select().focus();
-          });
-        }
-        if (!this.site.mobileView && !this.capabilities.isIOS) {
-          Ember.run.schedule('afterRender', () => this.$('input').focus());
-        }
-      }
     },
 
-    jumpPost() {
-      let postIndex = parseInt(this.get('toPostIndex'), 10);
-
-      // Validate the post index first
-      if (isNaN(postIndex) || postIndex < 1) {
-        postIndex = 1;
-      }
-      if (postIndex > this.get('postStream.filteredPostsCount')) {
-        postIndex = this.get('postStream.filteredPostsCount');
-      }
-      this.set('toPostIndex', postIndex);
-      this._beforeJump();
-      this.sendAction('jumpToIndex', postIndex);
-    },
-
-    jumpTop() {
-      this._beforeJump();
-      this.sendAction('jumpTop');
-    },
-
-    jumpBottom() {
-      this._beforeJump();
-      this.sendAction('jumpBottom');
+    goBack() {
+      this.attrs.jumpToPost(this.get('topic.last_read_post_number'));
     }
   },
 
-  _beforeJump() {
-    this.set('expanded', false);
-    this.set('userWantsToJump', false);
-  }
 });

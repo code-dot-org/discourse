@@ -13,9 +13,9 @@ export default {
     app.DiscoveryCategoryNoneController = DiscoverySortableController.extend();
     app.DiscoveryCategoryWithIDController = DiscoverySortableController.extend();
 
-    app.DiscoveryCategoryRoute = buildCategoryRoute('latest');
-    app.DiscoveryParentCategoryRoute = buildCategoryRoute('latest');
-    app.DiscoveryCategoryNoneRoute = buildCategoryRoute('latest', {no_subcategories: true});
+    app.DiscoveryCategoryRoute = buildCategoryRoute('default');
+    app.DiscoveryParentCategoryRoute = buildCategoryRoute('default');
+    app.DiscoveryCategoryNoneRoute = buildCategoryRoute('default', {no_subcategories: true});
 
     const site = Discourse.Site.current();
     site.get('filters').forEach(filter => {
@@ -64,9 +64,9 @@ export default {
     app["TagsShowParentCategoryRoute"] = TagsShowRoute.extend();
 
     site.get('filters').forEach(function(filter) {
-      app["TagsShow" + filter.capitalize() + "Route"] = TagsShowRoute.extend({ filterMode: filter });
-      app["TagsShowCategory" + filter.capitalize() + "Route"] = TagsShowRoute.extend({ filterMode: filter });
-      app["TagsShowParentCategory" + filter.capitalize() + "Route"] = TagsShowRoute.extend({ filterMode: filter });
+      app["TagsShow" + filter.capitalize() + "Route"] = TagsShowRoute.extend({ navMode: filter });
+      app["TagsShowCategory" + filter.capitalize() + "Route"] = TagsShowRoute.extend({ navMode: filter });
+      app["TagsShowParentCategory" + filter.capitalize() + "Route"] = TagsShowRoute.extend({ navMode: filter });
     });
   }
 };

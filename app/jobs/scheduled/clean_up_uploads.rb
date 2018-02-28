@@ -5,31 +5,61 @@ module Jobs
     def execute(args)
       return unless SiteSetting.clean_up_uploads?
 
-      ignore_urls = []
-      ignore_urls |= UserProfile.uniq.select(:profile_background).where("profile_background IS NOT NULL AND profile_background != ''").pluck(:profile_background)
-      ignore_urls |= UserProfile.uniq.select(:card_background).where("card_background IS NOT NULL AND card_background != ''").pluck(:card_background)
-      ignore_urls |= Category.uniq.select(:logo_url).where("logo_url IS NOT NULL AND logo_url != ''").pluck(:logo_url)
-      ignore_urls |= Category.uniq.select(:background_url).where("background_url IS NOT NULL AND background_url != ''").pluck(:background_url)
+      base_url = Discourse.store.internal? ? Discourse.store.relative_base_url : Discourse.store.absolute_base_url
+      s3_hostname = URI.parse(base_url).hostname
+      s3_cdn_hostname = URI.parse(SiteSetting.Upload.s3_cdn_url || "").hostname
 
-      ids = []
-      ids |= PostUpload.uniq.select(:upload_id).pluck(:upload_id)
-      ids |= User.uniq.select(:uploaded_avatar_id).where("uploaded_avatar_id IS NOT NULL").pluck(:uploaded_avatar_id)
-      ids |= UserAvatar.uniq.select(:gravatar_upload_id).where("gravatar_upload_id IS NOT NULL").pluck(:gravatar_upload_id)
+      # Any URLs in site settings are fair game
+      ignore_urls = [
+        SiteSetting.logo_url,
+        SiteSetting.logo_small_url,
+        SiteSetting.favicon_url,
+        SiteSetting.apple_touch_icon_url,
+      ].map do |url|
+        if url.present?
+          url = url.dup
+
+          if s3_cdn_hostname.present? && s3_hostname.present?
+            url.gsub!(s3_cdn_hostname, s3_hostname)
+          end
+
+          url[base_url] && url[url.index(base_url)..-1]
+        else
+          nil
+        end
+      end.compact.uniq
 
       grace_period = [SiteSetting.clean_orphan_uploads_grace_period_hours, 1].max
 
-      result = Upload.where("created_at < ?", grace_period.hour.ago)
-                     .where("retain_hours IS NULL OR created_at < current_timestamp - interval '1 hour' * retain_hours")
+      result = Upload.where("uploads.retain_hours IS NULL OR uploads.created_at < current_timestamp - interval '1 hour' * uploads.retain_hours")
+        .where("uploads.created_at < ?", grace_period.hour.ago)
+        .joins("LEFT JOIN post_uploads pu ON pu.upload_id = uploads.id")
+        .joins("LEFT JOIN users u ON u.uploaded_avatar_id = uploads.id")
+        .joins("LEFT JOIN user_avatars ua ON ua.gravatar_upload_id = uploads.id OR ua.custom_upload_id = uploads.id")
+        .joins("LEFT JOIN user_profiles up ON up.profile_background = uploads.url OR up.card_background = uploads.url")
+        .joins("LEFT JOIN categories c ON c.uploaded_logo_id = uploads.id OR c.uploaded_background_id = uploads.id")
+        .joins("LEFT JOIN custom_emojis ce ON ce.upload_id = uploads.id")
+        .joins("LEFT JOIN theme_fields tf ON tf.upload_id = uploads.id")
+        .where("pu.upload_id IS NULL")
+        .where("u.uploaded_avatar_id IS NULL")
+        .where("ua.gravatar_upload_id IS NULL AND ua.custom_upload_id IS NULL")
+        .where("up.profile_background IS NULL AND up.card_background IS NULL")
+        .where("c.uploaded_logo_id IS NULL AND c.uploaded_background_id IS NULL")
+        .where("ce.upload_id IS NULL")
+        .where("tf.upload_id IS NULL")
 
-      if !ids.empty?
-        result = result.where("id NOT IN (?)", ids)
+      result = result.where("uploads.url NOT IN (?)", ignore_urls) if ignore_urls.present?
+
+      result.find_each do |upload|
+        if upload.sha1.present?
+          encoded_sha = Base62.encode(upload.sha1.hex)
+          next if QueuedPost.where("raw LIKE '%#{upload.sha1}%' OR raw LIKE '%#{encoded_sha}%'").exists?
+          next if Draft.where("data LIKE '%#{upload.sha1}%' OR data LIKE '%#{encoded_sha}%'").exists?
+          upload.destroy
+        else
+          upload.delete
+        end
       end
-
-      if !ignore_urls.empty?
-        result = result.where("url NOT IN (?)", ignore_urls)
-      end
-
-      result.find_each { |upload| upload.destroy }
     end
   end
 end

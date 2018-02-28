@@ -3,6 +3,11 @@
 @import "common/foundation/mixins";
 @import "common/foundation/helpers";
 
+@import "common/admin/customize";
+@import "common/admin/flagging";
+@import "common/admin/moderation_history";
+@import "common/admin/suspend";
+
 $mobile-breakpoint: 700px;
 
 // Change the box model for .admin-content
@@ -29,18 +34,35 @@ $mobile-breakpoint: 700px;
 
 .admin-contents table {
   width: 100%;
+  margin-top: 10px;
+
   tr {text-align: left;}
   td, th {padding: 8px;}
-  th {border-top: 1px solid dark-light-diff($primary, $secondary, 90%, -60%);}
-  td {border-bottom: 1px solid dark-light-diff($primary, $secondary, 90%, -60%); border-top: 1px solid dark-light-diff($primary, $secondary, 90%, -60%);}
+  td {
+    border-bottom: 1px solid $primary-low;
+    border-top: 1px solid $primary-low;
+  }
+  th {
+    text-align: left;
+
+    &.sortable {
+      cursor: pointer;
+      white-space: nowrap;
+
+      &:hover {
+        background-color: #e9e9e9;
+        background-color: lighten($primary, 80%);
+      }
+
+      .d-icon-chevron-down,
+      .d-icon-chevron-up {
+        margin-left: 0.5em;
+      }
+    }
+  }
   tr:hover { background-color: darken($secondary, 2.5%); }
   tr.selected { background-color: lighten($primary, 80%); }
   .filters input { margin-bottom: 0; }
-}
-
-td.flaggers td {
-  border-bottom: none;
-  border-top: none;
 }
 
 .site-texts {
@@ -52,7 +74,7 @@ td.flaggers td {
 
     .site-text-search {
       padding: 0.5em;
-      font-size: 1em;
+      font-size: $font-0;
       width: 50%;
     }
 
@@ -70,16 +92,16 @@ td.flaggers td {
 
   .site-text {
     cursor: pointer;
-    border-bottom: 1px solid dark-light-diff($primary, $secondary, 90%, -60%);
+    border-bottom: 1px solid $primary-low;
     margin-bottom: 0.5em;
 
     &.overridden {
-      background-color: dark-light-diff($highlight, $secondary, 50%, -60%);
+      background-color: $highlight-medium;
     }
 
     h3 {
       font-weight: normal;
-      font-size: 1.1em;
+      font-size: $font-0;
     }
 
     button.edit {
@@ -88,7 +110,7 @@ td.flaggers td {
     .site-text-value {
       margin: 0.5em 5em 0.5em 0;
       max-height: 100px;
-      color: dark-light-diff($primary, $secondary, 40%, -10%);
+      color: $primary-medium;
     }
 
   }
@@ -108,14 +130,23 @@ td.flaggers td {
   }
 }
 
-.content-list li a span.count {
-  font-size: 0.857em;
-  float: right;
-  margin-right: 10px;
-  background-color: dark-light-diff($primary, $secondary, 90%, -60%);
-  padding: 2px 5px;
-  border-radius: 5px;
-  color: $primary;
+.content-list {
+  width: 27%;
+  float: left;
+  li a span.count {
+    font-size: $font-down-1;
+    float: right;
+    margin-right: 10px;
+    background-color: $primary-low;
+    padding: 2px 5px;
+    border-radius: 5px;
+    color: $primary;
+  }
+}
+
+.content-body {
+  float: left;
+  width: 60%;
 }
 
 .admin-content {
@@ -155,6 +186,16 @@ td.flaggers td {
   }
 }
 
+.full-reason {
+  white-space: pre-wrap;
+}
+
+.admin-users .users-list {
+  .username .fa {
+    color: dark-light-choose($primary-medium, $secondary-medium);
+  }
+}
+
 .ip-lookup {
   position: relative;
   display: inline-block;
@@ -162,12 +203,19 @@ td.flaggers td {
   .location-box {
     position: absolute;
     width: 460px;
-    right: 0px;
-    z-index: 990;
-    box-shadow: 0 2px 6px rgba(0,0,0, .8);
+    right: 0;
+    z-index: z("dropdown");
+    box-shadow: shadow("card");
     margin-top: -2px;
     background-color: $secondary;
     padding: 12px 12px 5px;
+
+    .powered-by {
+      font-size: $font-down-1;
+      position: absolute;
+      bottom: -10px;
+      left: 10px;
+    }
 
     .other-accounts {
       margin: 5px 0 0;
@@ -183,6 +231,25 @@ td.flaggers td {
 
 .admin-container {
   margin-top: 20px;
+
+  .select-kit {
+    width: 350px;
+  }
+  .select-kit.multi-select {
+    width: 500px;
+  }
+  .select-kit.dropdown-select-box {
+    width: auto;
+  }
+
+  .search-logs-filter {
+    width: 200px;
+    float: right;
+  }
+  .header-search-results {
+    clear: both;
+    padding: 4px;
+  }
 }
 
 .admin-container .controls {
@@ -194,27 +261,31 @@ td.flaggers td {
 }
 
 .admin-title {
-  height: 45px;
+  margin-bottom: 0.5em;
 }
 
 .admin-controls {
-  background-color: dark-light-diff($primary, $secondary, 90%, -65%);
+  background-color: $primary-low;
   padding: 10px 10px 3px 0;
   @include clearfix;
+  nav {
+    float: left;
+    margin-left: 12px;
+  }
   .nav.nav-pills {
     li.active {
       a {
-        border-color: dark-light-diff($primary, $secondary, 90%, -90%);
-        background-color: dark-light-diff($primary, $secondary, 40%, -10%);
+        border-color: $primary-low;
+        background-color: $primary-medium;
         &:hover {
-          background-color: dark-light-diff($primary, $secondary, 40%, -10%);
+          background-color: $primary-medium;
         }
       }
     }
   }
   h1 {
-    font-size: 1.429em;
-    line-height: 25px;
+    font-size: $font-up-3;
+    line-height: $line-height-medium;
     color: $primary;
   }
   .controls {
@@ -224,7 +295,6 @@ td.flaggers td {
   .controls .menu-toggle {
     display: none;
     float: left;
-    font-size: 24px;
     padding: 3px 6px;
     margin-right: 32px;
     border: 1px solid lighten($primary, 40%);
@@ -292,64 +362,80 @@ td.flaggers td {
   }
 }
 
+.email-preview {
+  .ac-wrap {
+    .item {
+      margin: 0.2em 0 0 0.4em;
+    }
+    // input[type=text] {
+    //   margin-left: 0.4em;
+    // }
+  }
+}
+
 .paste-users {
   width: 400px;
   height: 150px;
 }
 
-.groups, .badges {
+.groups, .badges, .web-hook-container {
   .form-horizontal {
-    label {
-      font-weight: bold;
-    }
-
     & > div {
-      margin-top: 10px;
+      margin-bottom: 20px;
     }
 
-    input, textarea, select {
+    .d-editor-textarea-wrapper {
+      max-width: 60%;
+      .d-editor-button-bar {
+        overflow: hidden;
+      }
+    }
+
+    input, textarea, select, .select-box {
       width: 350px;
     }
 
-    input[type="checkbox"] {
+    input[type="checkbox"], input[type="radio"] {
       width: 20px;
     }
   }
 }
 
+.text-successful {
+  color: $success;
+}
+
+.text-danger {
+  color: $danger;
+}
+
+.text-muted {
+  color: lighten($primary, 40);
+}
+
 .admin-nav {
   width: 18.018%;
   position: relative;
+
   // The admin-nav becomes a slide-out menu at the mobile-nav breakpoint
   @media (max-width: $mobile-breakpoint) {
     position: absolute;
-    z-index: 0;
+    z-index: z("base") - 1;
     width: 50%;
-  }
-  margin-top: 30px;
-  .nav-stacked {
-    border-right: none;
-    @media (max-width: $mobile-breakpoint) {
-      //margin-right: 10px;
-    }
-  }
-  li a.active {
-    color: $secondary;
-    background-color: $quaternary;
   }
 }
 
 .admin-detail {
   width: 76.5765%;
   @media (max-width: $mobile-breakpoint) {
-    z-index: 10;
+    z-index: z("base");
     width: 100%;
   }
   background-color: $secondary;
   // Todo: set this properly - it needs to be >= the menu height
   min-height: 875px;
   margin-left: 0;
-  border-left: solid 1px dark-light-diff($primary, $secondary, 90%, -60%);
+  border-left: solid 1px $primary-low;
   padding: 30px 0 30px 30px;
   @media (max-width: $mobile-breakpoint) {
     padding: 30px 0;
@@ -394,27 +480,24 @@ td.flaggers td {
       float: left;
       width: 53%;
       padding-right: 20px;
-      .category-group {
+      .category-selector {
         width: 95%;
       }
       @media (max-width: $mobile-breakpoint) {
         width: 100%;
         padding-right: 0;
       }
-      .select2-container {
+      .select-kit {
         width: 100% !important; // Needs !important to override hard-coded value
         @media (max-width: $mobile-breakpoint) {
           width: 100% !important; // !important overrides hard-coded mobile width of 68px
         }
       }
-      .select2-container-multi .select2-choices {
-        border: none;
-      }
     }
     .setting-controls {
       float: left;
     }
-    .input-setting-string {
+    .input-setting-string, .input-setting-textarea {
       box-sizing: border-box;
       height: 30px;
       width: 100%;
@@ -422,29 +505,24 @@ td.flaggers td {
         width: 100%;
       }
     }
+    .input-setting-textarea {
+      height: 150px;
+    }
     .input-setting-list {
       @media (max-width: $mobile-breakpoint) {
         width: 100%;
       }
       padding: 1px;
       background-color: $secondary;
-      border: 1px solid dark-light-diff($primary, $secondary, 90%, -60%);
+      border: 1px solid $primary-low;
       border-radius: 3px;
-      box-shadow: inset 0 1px 1px rgba(51, 51, 51, 0.3);
       transition: border linear 0.2s, box-shadow linear 0.2s;
-
-      li.select2-search-choice {
-        cursor: pointer;
-        .select2-search-choice-close {
-          content: "x"
-        }
-      }
 
       li.sortable-placeholder {
         padding: 3px 5px 3px 18px;
-        margin: 3px 0px 3px 5px;
+        margin: 3px 0 3px 5px;
         position: relative;
-        line-height: 13px;
+        line-height: $line-height-small;
         cursor: default;
         border: 1px dashed #AAA;
         border-radius: 3px;
@@ -459,8 +537,8 @@ td.flaggers td {
 
     .desc, .validation-error {
       padding-top: 3px;
-      font-size: 80%;
-      line-height: 1.4em;
+      font-size: $font-down-1;
+      line-height: $line-height-large;
     }
 
     .validation-error {
@@ -468,40 +546,40 @@ td.flaggers td {
     }
 
     .desc {
-      color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+      color: dark-light-choose($primary-medium, $secondary-medium);
     }
 
     h3 {
-      font-size: 0.929em;
+      font-size: $font-0;
       font-weight: normal;
     }
   }
 
   .setting.overridden {
     h3 {
-      color: scale-color($highlight, $lightness: -50%);
+      color: $highlight-high;
     }
   }
 
   .setting.overridden.string {
-    input[type=text] {
-      background-color: dark-light-diff($highlight, $secondary, 50%, -60%);
+    input[type=text], textarea {
+      background-color: $highlight-medium;
     }
   }
 }
 
 section.details {
   h1 {
-    font-size: 1.286em;
+    font-size: $font-up-3;
     color: $primary;
     padding: 5px 10px;
     margin: 30px 0 5px 0;
-    border-bottom: 5px solid dark-light-diff($primary, $secondary, 90%, -60%);
+    border-bottom: 5px solid $primary-low;
   }
 }
 
 #selected-controls {
-  background-color: scale-color($tertiary, $lightness: 75%);
+  background-color: $tertiary-low;
   padding: 8px;
   min-height: 27px;
   position: fixed;
@@ -513,22 +591,34 @@ section.details {
   padding: 5px;
   clear: both;
   text-align: right;
+  @media (max-width: $mobile-breakpoint) {
+    .btn {
+      margin: 2px;
+    }
+  }
 }
 
 .display-row.associations .value {
   width: 750px;
+  @media (max-width: $mobile-breakpoint) {
+    width: 75%;
+    float: right;
+    text-align: left;
+    margin-left: 0;
+  }
 }
 
 .display-row {
-  line-height: 30px;
-  padding: 5px;
+  display: flex;
+  align-items: center;
+  padding: 10px 5px;
   &:nth-of-type(1) {
     border-top: 0;
   }
   &.highlight-danger {
-    background-color: scale-color($danger, $lightness: 50%);
+    background-color: $danger-low;
   }
-  border-top: 1px solid dark-light-diff($primary, $secondary, 90%, -60%);
+  border-top: 1px solid $primary-low;
   &:before, &:after {
     display: table;
     content: "";
@@ -541,17 +631,32 @@ section.details {
     width: 17.65765%;
     float: left;
     margin-left: 12px;
+    @media (max-width: $mobile-breakpoint) {
+      margin-left: 0;
+      line-height: $line-height-large;
+      margin-top: 5px;
+    }
   }
   .value {
     width: 250px;
     float: left;
     margin-left: 12px;
+    @media (max-width: $mobile-breakpoint) {
+      width: 75%;
+      float: right;
+      text-align: left;
+      margin-left: 0;
+    }
+
+    .select-kit {
+      width: inherit;
+    }
   }
   .long-value {
     width: 800px;
     float: left;
     margin-left: 12px;
-    font-size: 0.929em;
+    font-size: $font-down-1;
 
     button {
       margin-left: 10px;
@@ -562,8 +667,14 @@ section.details {
     width: 480px;
     float: left;
     margin-left: 12px;
+    @media (max-width: $mobile-breakpoint) {
+      width: 75%;
+      float: right;
+      text-align: left;
+      margin-left: 0;
+    }
     .btn {
-      margin-right: 5px;
+      margin: 2px 5px 2px 0;
     }
   }
 }
@@ -575,11 +686,11 @@ section.details {
 
     .list-badge {
       float: right;
-      font-size: 11px;
+      font-size: $font-down-1;
       font-weight: normal;
       padding: 0 6px;
       color: $secondary;
-      background-color: scale-color($tertiary, $lightness: 50%);
+      background-color: $tertiary-medium;
       border-radius: 3px;
     }
   }
@@ -589,12 +700,45 @@ section.details {
 
     p.help {
       margin: 0;
-      color: dark-light-choose(scale-color($primary, $lightness: 40%), scale-color($secondary, $lightness: 60%));
-      font-size: 0.9em;
+      color: dark-light-choose($primary-medium, $secondary-medium);
+      font-size: $font-down-1;
     }
   }
 
   .form-horizontal {
+    .ace-wrapper {
+      position: relative;
+      height: 270px;
+      margin-bottom: 10px;
+
+      .ace_editor {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        border: 1px solid #e9e9e9;
+        border-radius: 3px;
+
+        .ace_gutter {
+          border-right: 1px solid #e9e9e9;
+          background: #f4f4f4;
+        }
+      }
+
+      &[data-disabled="true"] {
+        cursor: not-allowed;
+        opacity: 0.5;
+
+        .ace_editor {
+          pointer-events:none;
+
+          .ace_cursor {
+            visibility: hidden;
+          }
+        }
+      }
+    }
     .delete-link {
       margin-left: 15px;
       margin-top: 5px;
@@ -607,7 +751,7 @@ section.details {
   .current-badge-actions {
     margin: 10px;
     padding: 10px;
-    border-top: 1px solid dark-light-choose(scale-color($primary, $lightness: 80%), scale-color($secondary, $lightness: 20%));
+    border-top: 1px solid dark-light-choose($primary-low, $secondary-high);
   }
 
   .buttons {
@@ -628,17 +772,17 @@ section.details {
   }
 
   .badge-errors {
-    font-size: 1em;
-    line-height: 16px;
+    font-size: $font-0;
+    line-height: $line-height-medium;
     padding: 4px;
-    background-color: dark-light-diff($primary, $secondary, 90%, -60%);
+    background-color: $primary-low;
   }
 
   .badge-query-plan {
-    font-size: 0.857em;
-    line-height: 13px;
+    font-size: $font-down-1;
+    line-height: $line-height-medium;
     padding: 4px;
-    background-color: dark-light-diff($primary, $secondary, 90%, -60%);
+    background-color: $primary-low;
   }
 
   .count-warning {
@@ -660,7 +804,7 @@ section.details {
 .groups {
   .ac-wrap {
     width: 100% !important;
-    border-color: dark-light-choose(scale-color($primary, $lightness: 75%), scale-color($secondary, $lightness: 25%));
+    border-color: dark-light-choose($primary-low-mid, $secondary-high);
     .item {
       margin-right: 10px;
     }
@@ -677,178 +821,8 @@ section.details {
   .controls {
     margin-top: 10px;
   }
-  .select2-container {
-    width: 100%;
-  }
-  .select2-choices {
-    width: 100%;
-    border-color: dark-light-choose(scale-color($primary, $lightness: 75%), scale-color($secondary, $lightness: 25%));
-  }
-}
-
-// Customise area
-.customize {
-  .admin-footer {
-    margin-top: 20px;
-  }
-  .current-style.maximized {
-    position: fixed;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    z-index: 100000;
-    background-color: white;
-    width: 100%;
-    padding: 0;
-    margin: 0;
-    .wrapper {
-      position: absolute;
-      top: 20px;
-      bottom: 10px;
-      left: 20px;
-      right: 20px;
-    }
-  }
-  .nav.nav-pills {
-    margin-left: 10px;
-  }
-  .content-list, .current-style {
-    float: left;
-  }
-  .content-list ul {
-    margin-bottom: 10px;
-  }
-  .current-style {
-    .nav.nav-pills{
-      position: relative;
-    }
-    .toggle-mobile {
-      position: absolute;
-      right: 35px;
-      font-size: 20px;
-    }
-    .toggle-maximize {
-      position: absolute;
-      right: -5px;
-    }
-    .delete-link {
-      margin-left: 15px;
-      margin-top: 5px;
-    }
-    .preview-link {
-      margin-left: 15px;
-    }
-    .export {
-      float: right;
-    }
-    padding-left: 10px;
-    width: 70%;
-    .style-name {
-      width: 350px;
-      height: 25px;
-      // Remove height to for `box-sizing: border-box`
-      height: auto;
-    }
-    .ace-wrapper {
-      position: relative;
-      height: 400px;
-      width: 100%;
-    }
-    &.maximized {
-      .admin-container {
-        position: absolute;
-        bottom: 50px;
-        top: 80px;
-        width: 100%;
-      }
-      .admin-footer {
-        position: absolute;
-        bottom: 10px;
-      }
-      .ace-wrapper {
-        height: 100%;
-      }
-    }
-    .ace_editor {
-      position: absolute;
-      left: 0;
-      right: 0;
-      top: 0;
-      bottom: 0;
-    }
-    .status-actions {
-      float: right;
-      margin-top: 7px;
-      span {
-        margin-right: 10px;
-      }
-    }
-    .buttons {
-      float: left;
-      width: 200px;
-      .saving {
-        padding: 5px 0 0 0;
-        margin-left: 10px;
-        width: 80px;
-        color: $primary;
-      }
-    }
-  }
-  .color-scheme {
-    .controls {
-      span, button, a {
-        margin-right: 10px;
-      }
-    }
-  }
-  .colors {
-    thead th       { border: none; }
-    td.hex         { width: 100px; }
-    td.actions     { width: 200px; }
-    .hex-input     { width: 80px; margin-bottom: 0; }
-    .hex           { text-align: center; }
-    .description   { color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%)); }
-
-    .invalid .hex input {
-      background-color: white;
-      color: black;
-      border-color: $danger;
-    }
-  }
-}
-
-.admin-flags {
-  .hidden-post td.excerpt,
-  .hidden-post td.user {
-    opacity: 0.5;
-  }
-
-  .deleted td.excerpt,
-  .deleted td.user {
-    background-color: scale-color($danger, $lightness: 70%);
-  }
-
-  .message { background-color: dark-light-diff($highlight, $secondary, 50%, -70%); }
-  .message:hover { background-color: dark-light-diff($highlight, $secondary, 60%, -60%); }
-
-  .excerpt {
-    padding: 8px;
-    word-wrap: break-word;
-    .fa { display: inline-block; }
-    h3 {
-      max-height: 1.2em;
-      overflow: hidden;
-      margin-top: 0;
-      margin-bottom: 5px;
-    }
-  }
-
-  .flagged-posts { background: $danger; }
-
-  .action {
-     button { margin: 4px; }
-     text-align: right;
+  .content-list {
+    margin-right: 20px;
   }
 }
 
@@ -875,8 +849,9 @@ section.details {
   }
 
   .version-number {
-    font-size: 1.286em;
+    font-size: $font-up-3;
     font-weight: bold;
+    line-height: $line-height-medium;
   }
 
   .face {
@@ -895,7 +870,7 @@ section.details {
   }
 
   .fa {
-    font-size: 1.857em;
+    font-size: $font-up-4;
   }
 
   .up-to-date {
@@ -910,8 +885,8 @@ section.details {
 }
 
 .update-nag {
-  i.fa {
-    font-size: 1.429em;
+  .d-icon {
+    font-size: $font-up-3;
   }
 }
 
@@ -929,7 +904,7 @@ table.api-keys {
   }
 
   td.key {
-    font-size: 0.857em;
+    font-size: $font-down-1;
   }
 }
 
@@ -945,10 +920,10 @@ table.api-keys {
     width: 100%;
 
     .title {
-      i.fa {
+      .d-icon {
         color: $primary;
       }
-      i.fa-heart {
+      .d-icon-heart {
         color: $love;
       }
     }
@@ -956,7 +931,7 @@ table.api-keys {
     th {
       font-weight: normal;
       text-align: center;
-      background: dark-light-diff($primary, $secondary, 80%, -65%);
+      background: $primary-low;
     }
     th.title {
       text-align: left;
@@ -1006,7 +981,7 @@ table.api-keys {
   }
 
   &.detected-problems {
-    background: dark-light-diff($primary, $secondary, 90%, -75%);
+    background: $primary-low;
     margin-bottom: 20px;
 
     .look-here {
@@ -1014,7 +989,7 @@ table.api-keys {
       margin: 20px 10px 0 10px;
 
       .fa {
-        font-size: 2.286em;
+        font-size: $font-up-5;
         vertical-align: middle;
         color: $primary
       }
@@ -1031,7 +1006,7 @@ table.api-keys {
         text-align: right;
       }
       .btn {
-        background: dark-light-diff($primary, $secondary, 80%, -85%);
+        background: $primary-low;
       }
       ul {
         margin-left: 0;
@@ -1080,102 +1055,6 @@ table.api-keys {
   }
 }
 
-.commits-widget {
-  border: solid 1px dark-light-diff($primary, $secondary, 90%, -60%);
-  height: 180px;
-  margin-bottom: 36px;
-
-  ul, li {
-    margin: 0;
-    padding: 0;
-  }
-  ul {
-    list-style: none;
-  }
-  a {
-    color: $primary;
-    text-decoration: none;
-  }
-  a:hover {
-    text-decoration: underline;
-  }
-
-  .header {
-    color: $primary;
-    font-weight: bold;
-    height: 30px;
-    background: dark-light-diff($primary, $secondary, 80%, -75%);
-    cursor: pointer;
-
-    h1 {
-      font-size: 1.286em;
-      margin: 5px 0 0 8px;
-      display: inline-block;
-      line-height: 1.0em;
-    }
-  }
-
-  .header:hover h1 {
-    color: $tertiary;
-  }
-
-  .commits-list {
-    height: 149px;
-    overflow-y:auto;
-
-    li {
-      @extend .clearfix;
-      line-height: 1.0em;
-      padding: 6px 8px;
-    background-color: dark-light-diff($primary, $secondary, 90%, -60%);
-      .left {
-        float: left;
-      }
-      .right {
-        margin-left: 52px;
-      }
-
-      img {
-        margin-top: 2px;
-        border: solid 1px dark-light-diff($primary, $secondary, 90%, -60%);
-        padding: 2px;
-        background-color: $secondary;
-      }
-
-      .commit-message {
-        color: $primary;
-        font-size: 0.857em;
-        font-weight: bold;
-      }
-
-      .commit-meta {
-        color: $primary;
-        font-size: 0.857em;
-      }
-
-      .committer-name {
-        font-weight: bold;
-        color: $primary;
-      }
-    }
-    li:last-child {
-      border: none;
-    }
-  }
-
-  // Always show the scrollbar:
-  ::-webkit-scrollbar {
-    width: 6px;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: dark-light-diff($primary, $secondary, 90%, -75%);
-    -webkit-border-radius: 3px;
-  }
-  ::-webkit-scrollbar-track {
-    border-left: solid 1px dark-light-diff($primary, $secondary, 90%, -60%);
-  }
-}
-
 .content-editor {
   min-height: 500px;
 
@@ -1214,6 +1093,21 @@ table.api-keys {
     bottom: 0;
   }
 
+}
+
+.hook-event {
+  display: inline-block;
+  width: 40%;
+
+  margin-left: 20px;
+
+  label {
+    display: inline-block;
+  }
+
+  p {
+    margin: 0 0 5px 25px;
+  }
 }
 
 .email-template {
@@ -1325,14 +1219,14 @@ table.api-keys {
   margin: 0 0 20px 6px;
   a.filter {
     display: inline-block;
-    background-color: dark-light-choose(scale-color($primary, $lightness: 75%), scale-color($secondary, $lightness: 25%));
+    background-color: dark-light-choose($primary-low-mid, $secondary-high);
     padding: 3px 10px;
     border-radius: 3px;
 
     color: $primary;
     &:hover {
       color: $primary;
-      background-color: dark-light-diff($primary, $secondary, 90%, -60%);
+      background-color: $primary-low;
 
 
     }
@@ -1343,10 +1237,6 @@ table.api-keys {
       margin-left: 6px;
     }
   }
-}
-
-.staff-action-logs-instructions {
-  margin: 0 0 10px 10px;
 }
 
 // Ember.ListView
@@ -1360,13 +1250,13 @@ table.api-keys {
   position: absolute;
 }
 
-.staff-actions, .screened-emails, .screened-urls, .screened-ip-addresses, .permalinks {
+.staff-actions, .screened-emails, .screened-urls, .screened-ip-addresses, .permalinks, .search-logs-list, .web-hook-events {
 
-  border-bottom: dotted 1px dark-light-choose(scale-color($primary, $lightness: 75%), scale-color($secondary, $lightness: 25%));
+  border-bottom: dotted 1px dark-light-choose($primary-low-mid, $secondary);
 
   .heading-container {
     width: 100%;
-    background-color: dark-light-diff($primary, $secondary, 90%, -60%);
+    background-color: $primary-low;
   }
   .col.heading {
     font-weight: bold;
@@ -1382,21 +1272,39 @@ table.api-keys {
 
   .ember-list-item-view {
     width: 100%;
-    border-top: solid 1px dark-light-diff($primary, $secondary, 90%, -60%);
+    border-top: solid 1px $primary-low;
+  }
+}
+
+.search-logs-list{
+  .col {
+    text-align: center;
+    width: 15%;
+  }
+
+  .col.term {
+    width: 45%;
+    text-align: left;
   }
 }
 
 .log-details-modal {
+
+  pre {
+    white-space: pre-wrap;
+    max-height: 250px;
+  }
+
   .modal-tab {
     width: 95%;
   }
 }
 
 .tl3-requirements {
-  .fa-check {
+  .d-icon-check {
     color: $success;
   }
-  .fa-times {
+  .d-icon-times {
     color: $danger;
   }
 }
@@ -1453,28 +1361,12 @@ button.ru {
   visibility: hidden;
 }
 
-.delete-flag-modal, .agree-flag-modal {
-  button {
-    display: block;
-    margin: 10px 0 10px 10px;
-    padding: 10px 15px;
-  }
-}
-
 .start-backup-modal {
   .btn {
     margin: 10px 0 10px 5px;
   }
   .btn:first-of-type {
     margin-left: 10px;
-  }
-}
-
-@media all
-and (max-width : 850px) {
-  html:not(.mobile-view) .admin-content .nav-stacked {
-    .glyph {width: auto; position: relative;}
-    > li > a {padding: 13px}
   }
 }
 
@@ -1502,9 +1394,6 @@ and (max-width : 500px) {
       .setting-value {
         width: 100%;
         }
-      label {
-        font-size: 0.929em;
-        }
     }
   }
 
@@ -1515,7 +1404,7 @@ and (max-width : 500px) {
   div.ac-wrap {
     width: 100% !important;
     box-sizing: border-box;
-    }
+  }
 
   .admin-container {
     h2 {
@@ -1572,7 +1461,7 @@ tr.not-activated {
   .user-field {
     padding: 10px;
     margin-bottom: 10px;
-    border-bottom: 1px solid dark-light-diff($primary, $secondary, 90%, -60%);
+    border-bottom: 1px solid $primary-low;
 
     .form-display {
       width: 25%;
@@ -1702,10 +1591,14 @@ table#user-badges {
   }
 
   p.description {
-    color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+    color: dark-light-choose($primary-medium, $secondary-medium);
     margin-bottom: 1em;
     max-width: 700px;
   }
+}
+
+.embedding td input {
+  margin-bottom: 0;
 }
 
 // Emails
@@ -1719,8 +1612,8 @@ table#user-badges {
   }
   .reply-key {
     display: block;
-    font-size: 12px;
-    color: dark-light-choose(scale-color($primary, $lightness: 40%), scale-color($secondary, $lightness: 40%));
+    font-size: $font-down-1;
+    color: dark-light-choose($primary-medium, $secondary-high);
   }
   .username div {
     max-width: 180px;
@@ -1749,7 +1642,7 @@ table#user-badges {
   }
   .error-description {
     color: #919191;
-    font-size: 90%;
+    font-size: $font-down-1;
   }
   hr {
     margin: 0;
@@ -1773,6 +1666,155 @@ table#user-badges {
   }
 }
 
+.admin-list-item {
+  width: 100%;
+  border-top: 1px solid #e9e9e9;
+  padding: 0.25em 0;
+}
+
+// Webhook
+
+.web-hook-container {
+  > p {
+    padding-bottom: 10px;
+    border-bottom: darken($secondary, 10%) 1px solid;
+  }
+  .filters {
+    margin: 5px 0;
+    padding-bottom: 5px;
+    border-bottom: darken($secondary, 5%) 1px solid;
+  }
+  .instructions {
+    margin-top: 5px;
+  }
+  .subscription-choice {
+    margin-bottom: 10px;
+  }
+}
+
+.web-hook-direction {
+  button {
+    margin-right: 10px;
+  }
+}
+
+.web-hook-events {
+  li {
+    padding: 2px 0;
+  }
+
+  .col {
+    display: inline-block;
+    padding-top: 6px;
+    vertical-align: top;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .col.first {
+    width: 90px;
+  }
+
+  .col.event-id {
+    width: 300px;
+  }
+
+  .col.timestamp {
+    width: 150px;
+  }
+
+  .col.completion {
+    width: 220px;
+  }
+
+  .col.actions {
+    width: 305px;
+    padding-top: 0;
+    a {
+      text-decoration: underline;
+    }
+  }
+
+  .col.heading.actions {
+    padding: 4px 0;
+  }
+
+  .details {
+    display: block;
+    margin-top: 10px;
+  }
+  label {
+    font-size: $font-0;
+  }
+
+  &.content-list {
+    width: 100%;
+  }
+}
+
+.web-hook-events-listing {
+  margin-top: 15px;
+  .alert {
+    margin: 15px 0 0 0;
+  }
+}
+
+.email-preview-digest {
+  .controls {
+    margin-left: 20px;
+    label {
+      display: inline;
+    }
+  }
+
+  .preview-output iframe {
+    width: 100%;
+    height: 600px;
+    border-width: 1px;
+  }
+}
+
+.watched-word-box {
+  display: inline-block;
+  width: 250px;
+  margin-bottom: 1em;
+  float: left;
+}
+
+.watched-words-list {
+  margin-top: 20px;
+}
+.watched-word {
+  display: inline-block;
+  cursor: pointer;
+  .d-icon {
+    margin-right: 0.25em;
+    color: dark-light-diff($primary, $secondary, 50%, -50%);
+  }
+  &:hover .d-icon {
+    color: $primary;
+  }
+}
+.watched-word-form {
+  display: inline-block;
+  .success-message {
+    margin-left: 1em;
+  }
+}
+.watched-words-uploader {
+  float: right;
+  text-align: right;
+  .instructions {
+    font-size: $font-down-1;
+  }
+}
+.watched-words-detail {
+  .about {
+    margin-top: 24px;
+    margin-bottom: 40px;
+  }
+}
+
 // Mobile specific styles
 // Mobile view text-inputs need some padding
 .mobile-view .admin-contents {
@@ -1792,8 +1834,10 @@ table#user-badges {
 // Mobile specific style for Admin IP Lookup box
 .mobile-view .admin-contents .ip-lookup .location-box {
   width: 300px;
-  left: 20px;
+  left: -100%;
 }
+
+
 
 .cboxcontainer {
   display: inline-block;
@@ -1813,6 +1857,12 @@ table#user-badges {
     background: $secondary;
   }
 }
+
+.inline-edit label {
+  display: inline-block;
+  margin-right: 20px;
+}
+
 .cbox0 { background: blend-primary-secondary(0%); }
 .cbox10 { background: blend-primary-secondary(10%); }
 .cbox20 { background: blend-primary-secondary(20%); }
@@ -1838,11 +1888,11 @@ table#user-badges {
 .dbox20 { background: dark-light-diff($primary, $secondary, 20%, -20%); }
 .dbox30 { background: dark-light-diff($primary, $secondary, 30%, -30%); }
 .dbox40 { background: dark-light-diff($primary, $secondary, 40%, -40%); }
-.dbox50 { background: dark-light-diff($primary, $secondary, 50%, -50%); }
+.dbox50 { background: blend-primary-secondary(50%); }
 .dbox60 { background: dark-light-diff($primary, $secondary, 60%, -60%); }
 .dbox70 { background: dark-light-diff($primary, $secondary, 70%, -70%); }
 .dbox80 { background: dark-light-diff($primary, $secondary, 80%, -80%); }
-.dbox90 { background: dark-light-diff($primary, $secondary, 90%, -90%); }
+.dbox90 { background: $primary-low;  }
 .dbox100 { background: dark-light-diff($primary, $secondary, 100%, -100%); }
 .dbox5 { background: dark-light-diff($primary, $secondary, 5%, -5%); }
 .dbox15 { background: dark-light-diff($primary, $secondary, 15%, -15%); }

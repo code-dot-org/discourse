@@ -1,11 +1,14 @@
-import { h } from 'virtual-dom';
-
 export default function renderTag(tag, params) {
   params = params || {};
   tag = Handlebars.Utils.escapeExpression(tag);
   const classes = ['tag-' + tag, 'discourse-tag'];
   const tagName = params.tagName || "a";
-  const href = tagName === "a" ? " href='" + Discourse.getURL("/tags/" + tag) + "' " : "";
+  let path;
+  if (tagName === "a" && !params.noHref) {
+    const current_user = Discourse.User.current();
+    path = params.isPrivateMessage ? `/u/${current_user.username}/messages/tag/${tag}` : `/tags/${tag}`;
+  }
+  const href = path ? ` href='${Discourse.getURL(path)}' ` : "";
 
   if (Discourse.SiteSettings.tag_style || params.style) {
     classes.push(params.style || Discourse.SiteSettings.tag_style);
@@ -19,19 +22,3 @@ export default function renderTag(tag, params) {
 
   return val;
 };
-
-export function tagNode(tag, params) {
-  const classes = ['tag-' + tag, 'discourse-tag'];
-  const tagName = params.tagName || "a";
-
-  if (Discourse.SiteSettings.tag_style || params.style) {
-    classes.push(params.style || Discourse.SiteSettings.tag_style);
-  }
-
-  if (tagName === 'a') {
-    const href = Discourse.getURL(`/tags/${tag}`);
-    return h(tagName, { className: classes.join(' '), attributes: { href } }, tag);
-  } else {
-    return h(tagName, { className: classes.join(' ') }, tag);
-  }
-}

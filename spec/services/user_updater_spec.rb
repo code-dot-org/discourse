@@ -10,17 +10,14 @@ describe UserUpdater do
       u2 = Fabricate(:user)
       u3 = Fabricate(:user)
 
-
       updater = UserUpdater.new(u1, u1)
       updater.update_muted_users("#{u2.username},#{u3.username}")
 
       updater = UserUpdater.new(u2, u2)
       updater.update_muted_users("#{u3.username},#{u1.username}")
 
-
       updater = UserUpdater.new(u3, u3)
       updater.update_muted_users("")
-
 
       expect(MutedUser.where(user_id: u2.id).count).to eq 2
       expect(MutedUser.where(user_id: u1.id).count).to eq 2
@@ -64,15 +61,26 @@ describe UserUpdater do
     it 'updates various fields' do
       user = Fabricate(:user)
       updater = UserUpdater.new(acting_user, user)
+      date_of_birth = Time.zone.now
 
-      updater.update(bio_raw: 'my new bio',
-                     email_always: 'true',
-                     mailing_list_mode: true,
-                     digest_after_minutes: "45",
-                     new_topic_duration_minutes: 100,
-                     auto_track_topics_after_msecs: 101,
-                     email_in_reply_to: false
-                    )
+      theme = Theme.create!(user_id: -1, name: "test", user_selectable: true)
+
+      seq = user.user_option.theme_key_seq
+
+      val = updater.update(bio_raw: 'my new bio',
+                           email_always: 'true',
+                           mailing_list_mode: true,
+                           digest_after_minutes: "45",
+                           new_topic_duration_minutes: 100,
+                           auto_track_topics_after_msecs: 101,
+                           notification_level_when_replying: 3,
+                           email_in_reply_to: false,
+                           date_of_birth: date_of_birth,
+                           theme_key: theme.key,
+                           allow_private_messages: false)
+
+      expect(val).to be_truthy
+
       user.reload
 
       expect(user.user_profile.bio_raw).to eq 'my new bio'
@@ -81,15 +89,40 @@ describe UserUpdater do
       expect(user.user_option.digest_after_minutes).to eq 45
       expect(user.user_option.new_topic_duration_minutes).to eq 100
       expect(user.user_option.auto_track_topics_after_msecs).to eq 101
+      expect(user.user_option.notification_level_when_replying).to eq 3
       expect(user.user_option.email_in_reply_to).to eq false
+      expect(user.user_option.theme_key).to eq theme.key
+      expect(user.user_option.theme_key_seq).to eq(seq + 1)
+      expect(user.user_option.allow_private_messages).to eq(false)
+      expect(user.date_of_birth).to eq(date_of_birth.to_date)
     end
 
-    context 'when update succeeds' do
-      it 'returns true' do
+    it "disables email_digests when enabling mailing_list_mode" do
+      user = Fabricate(:user)
+      updater = UserUpdater.new(acting_user, user)
+
+      val = updater.update(mailing_list_mode: true, email_digests: true)
+      expect(val).to be_truthy
+
+      user.reload
+
+      expect(user.user_option.email_digests).to eq false
+      expect(user.user_option.mailing_list_mode).to eq true
+    end
+
+    context 'when sso overrides bio' do
+      it 'does not change bio' do
+        SiteSetting.sso_url = "https://www.example.com/sso"
+        SiteSetting.enable_sso = true
+        SiteSetting.sso_overrides_bio = true
+
         user = Fabricate(:user)
         updater = UserUpdater.new(acting_user, user)
 
-        expect(updater.update).to be_truthy
+        expect(updater.update(bio_raw: "new bio")).to be_truthy
+
+        user.reload
+        expect(user.user_profile.bio_raw).not_to eq 'new bio'
       end
     end
 
@@ -123,7 +156,7 @@ describe UserUpdater do
         guardian = stub
         guardian.stubs(:can_grant_title?).with(user).returns(false)
         Guardian.stubs(:new).with(acting_user).returns(guardian)
-        updater = described_class.new(acting_user, user)
+        updater = UserUpdater.new(acting_user, user)
 
         updater.update(title: 'Minion')
 
@@ -134,7 +167,7 @@ describe UserUpdater do
     context 'when website includes http' do
       it 'does not add http before updating' do
         user = Fabricate(:user)
-        updater = described_class.new(acting_user, user)
+        updater = UserUpdater.new(acting_user, user)
 
         updater.update(website: 'http://example.com')
 
@@ -145,7 +178,7 @@ describe UserUpdater do
     context 'when website does not include http' do
       it 'adds http before updating' do
         user = Fabricate(:user)
-        updater = described_class.new(acting_user, user)
+        updater = UserUpdater.new(acting_user, user)
 
         updater.update(website: 'example.com')
 
@@ -156,13 +189,37 @@ describe UserUpdater do
     context 'when custom_fields is empty string' do
       it "update is successful" do
         user = Fabricate(:user)
-        user.custom_fields = {'import_username' => 'my_old_username'}
+        user.custom_fields = { 'import_username' => 'my_old_username' }
         user.save
-        updater = described_class.new(acting_user, user)
+        updater = UserUpdater.new(acting_user, user)
 
         updater.update(website: 'example.com', custom_fields: '')
-        expect(user.reload.custom_fields).to eq({'import_username' => 'my_old_username'})
+        expect(user.reload.custom_fields).to eq('import_username' => 'my_old_username')
       end
+    end
+
+    it "logs the action" do
+      user_without_name = Fabricate(:user, name: nil)
+      user = Fabricate(:user, name: 'Billy Bob')
+      expect do
+        UserUpdater.new(acting_user, user).update(name: 'Jim Tom')
+      end.to change { UserHistory.count }.by(1)
+
+      expect do
+        UserUpdater.new(acting_user, user).update(name: 'JiM TOm')
+      end.to_not change { UserHistory.count }
+
+      expect do
+        UserUpdater.new(acting_user, user_without_name).update(bio_raw: 'foo bar')
+      end.to_not change { UserHistory.count }
+
+      expect do
+        UserUpdater.new(acting_user, user_without_name).update(name: 'Jim Tom')
+      end.to change { UserHistory.count }.by(1)
+
+      expect do
+        UserUpdater.new(acting_user, user).update(name: '')
+      end.to change { UserHistory.count }.by(1)
     end
   end
 end

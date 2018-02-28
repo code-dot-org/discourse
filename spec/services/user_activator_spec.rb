@@ -27,5 +27,6 @@ describe UserActivator do
       user.reload
       expect(user.email_tokens.last.created_at).to be_within_one_second_of(Time.zone.now)
     end
+
   end
 end

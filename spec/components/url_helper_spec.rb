@@ -30,6 +30,21 @@ describe UrlHelper do
 
   describe "#absolute" do
 
+    it "returns an absolute URL for CDN" do
+      begin
+        Rails.configuration.action_controller.asset_host = "//cdn.awesome.com"
+        expect(UrlHelper.absolute("/test.jpg")).to eq("https://cdn.awesome.com/test.jpg")
+
+        Rails.configuration.action_controller.asset_host = "https://cdn.awesome.com"
+        expect(UrlHelper.absolute("/test.jpg")).to eq("https://cdn.awesome.com/test.jpg")
+
+        Rails.configuration.action_controller.asset_host = "http://cdn.awesome.com"
+        expect(UrlHelper.absolute("/test.jpg")).to eq("http://cdn.awesome.com/test.jpg")
+      ensure
+        Rails.configuration.action_controller.asset_host = nil
+      end
+    end
+
     it "does not change non-relative url" do
       expect(UrlHelper.absolute("http://www.discourse.org")).to eq("http://www.discourse.org")
     end
@@ -62,6 +77,28 @@ describe UrlHelper do
       expect(UrlHelper.schemaless("ftp://ftp.discourse.org")).to eq("ftp://ftp.discourse.org")
     end
 
+  end
+
+  describe "#escape_uri" do
+    it "doesn't escape simple URL" do
+      url = UrlHelper.escape_uri('http://example.com/foo/bar')
+      expect(url).to eq('http://example.com/foo/bar')
+    end
+
+    it "escapes unsafe chars" do
+      url = UrlHelper.escape_uri("http://example.com/?a=\11\15")
+      expect(url).to eq('http://example.com/?a=%09%0D')
+    end
+
+    it "escapes non-ascii chars" do
+      url = UrlHelper.escape_uri('http://example.com/ماهی')
+      expect(url).to eq('http://example.com/%D9%85%D8%A7%D9%87%DB%8C')
+    end
+
+    it "doesn't escape already escaped chars" do
+      url = UrlHelper.escape_uri('http://example.com/foo%20bar/foo bar/')
+      expect(url).to eq('http://example.com/foo%20bar/foo%20bar/')
+    end
   end
 
 end

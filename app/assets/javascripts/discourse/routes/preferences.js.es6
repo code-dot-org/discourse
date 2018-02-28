@@ -3,19 +3,22 @@ import showModal from 'discourse/lib/show-modal';
 import { popupAjaxError } from 'discourse/lib/ajax-error';
 
 export default RestrictedUserRoute.extend({
+
   model() {
     return this.modelFor('user');
   },
 
   setupController(controller, user) {
-    controller.reset();
     controller.setProperties({
-      model: user,
-      newNameInput: user.get('name')
+      model: user
     });
   },
 
   actions: {
+    showTwoFactorModal() {
+      showModal('second-factor-intro');
+    },
+
     showAvatarSelector() {
       showModal('avatar-selector');
 

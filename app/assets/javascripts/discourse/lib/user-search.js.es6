@@ -1,4 +1,5 @@
 import { CANCELLED_STATUS } from 'discourse/lib/autocomplete';
+import { userPath } from 'discourse/lib/url';
 
 var cache = {},
     cacheTopicId,
@@ -6,7 +7,7 @@ var cache = {},
     currentTerm,
     oldSearch;
 
-function performSearch(term, topicId, includeGroups, includeMentionableGroups, allowedUsers, resultsFn) {
+function performSearch(term, topicId, includeGroups, includeMentionableGroups, includeMessageableGroups, allowedUsers, group, resultsFn) {
   var cached = cache[term];
   if (cached) {
     resultsFn(cached);
@@ -14,11 +15,13 @@ function performSearch(term, topicId, includeGroups, includeMentionableGroups, a
   }
 
   // need to be able to cancel this
-  oldSearch = $.ajax(Discourse.getURL('/users/search/users'), {
+  oldSearch = $.ajax(userPath('search/users'), {
     data: { term: term,
             topic_id: topicId,
             include_groups: includeGroups,
             include_mentionable_groups: includeMentionableGroups,
+            include_messageable_groups: includeMessageableGroups,
+            group: group,
             topic_allowed_users: allowedUsers }
   });
 
@@ -44,6 +47,7 @@ function organizeResults(r, options) {
   var exclude = options.exclude || [],
       limit = options.limit || 5,
       users = [],
+      emails = [],
       groups = [],
       results = [];
 
@@ -57,18 +61,26 @@ function organizeResults(r, options) {
     });
   }
 
+  if (options.term.match(/@/)) {
+    let e = { username: options.term };
+    emails = [ e ];
+    results.push(e);
+  }
+
   if (r.groups) {
     r.groups.every(function(g) {
-      if (results.length > limit) return false;
-      if (exclude.indexOf(g.name) === -1) {
-        groups.push(g);
-        results.push(g);
+      if (options.term.toLowerCase() === g.name.toLowerCase() || results.length < limit) {
+        if (exclude.indexOf(g.name) === -1) {
+          groups.push(g);
+          results.push(g);
+        }
       }
       return true;
     });
   }
 
   results.users = users;
+  results.emails = emails;
   results.groups = groups;
   return results;
 }
@@ -78,8 +90,10 @@ export default function userSearch(options) {
   var term = options.term || "",
       includeGroups = options.includeGroups,
       includeMentionableGroups = options.includeMentionableGroups,
+      includeMessageableGroups = options.includeMessageableGroups,
       allowedUsers = options.allowedUsers,
-      topicId = options.topicId;
+      topicId = options.topicId,
+      group = options.group;
 
 
   if (oldSearch) {
@@ -91,7 +105,7 @@ export default function userSearch(options) {
 
   return new Ember.RSVP.Promise(function(resolve) {
     // TODO site setting for allowed regex in username
-    if (term.match(/[^\w\.\-]/)) {
+    if (term.match(/[^\w_\-\.@\+]/)) {
       resolve([]);
       return;
     }
@@ -105,10 +119,17 @@ export default function userSearch(options) {
       resolve(CANCELLED_STATUS);
     }, 5000);
 
-    debouncedSearch(term, topicId, includeGroups, includeMentionableGroups, allowedUsers, function(r) {
-      clearTimeout(clearPromise);
-      resolve(organizeResults(r, options));
-    });
+    debouncedSearch(term,
+        topicId,
+        includeGroups,
+        includeMentionableGroups,
+        includeMessageableGroups,
+        allowedUsers,
+        group,
+        function(r) {
+          clearTimeout(clearPromise);
+          resolve(organizeResults(r, options));
+        });
 
   });
 }

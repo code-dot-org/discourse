@@ -1,4 +1,3 @@
-require "backup_restore/utils"
 require "backup_restore/backuper"
 require "backup_restore/restorer"
 
@@ -6,15 +5,21 @@ module BackupRestore
 
   class OperationRunningError < RuntimeError; end
 
-  DUMP_FILE = "dump.sql"
+  VERSION_PREFIX = "v".freeze
+  DUMP_FILE = "dump.sql.gz".freeze
+  OLD_DUMP_FILE = "dump.sql".freeze
   METADATA_FILE = "meta.json"
   LOGS_CHANNEL = "/admin/backups/logs"
 
-  def self.backup!(user_id, opts={})
-    start! BackupRestore::Backuper.new(user_id, opts)
+  def self.backup!(user_id, opts = {})
+    if opts[:fork] == false
+      BackupRestore::Backuper.new(user_id, opts).run
+    else
+      start! BackupRestore::Backuper.new(user_id, opts)
+    end
   end
 
-  def self.restore!(user_id, opts={})
+  def self.restore!(user_id, opts = {})
     start! BackupRestore::Restorer.new(user_id, opts)
   end
 

@@ -18,9 +18,13 @@ describe Badge do
     badge = Badge.find_by_name("Basic User")
     name_english = badge.name
 
-    I18n.locale = 'fr'
+    begin
+      I18n.locale = 'fr'
 
-    expect(badge.display_name).not_to eq(name_english)
+      expect(badge.display_name).not_to eq(name_english)
+    ensure
+      I18n.locale = :en
+    end
   end
 
   it 'handles changes on badge description and long description correctly for system badges' do
@@ -57,5 +61,23 @@ describe Badge do
     expect(b.grant_count).to eq(1)
   end
 
-end
+  describe '#manually_grantable?' do
+    let(:badge) { Fabricate(:badge, name: 'Test Badge') }
+    subject { badge.manually_grantable? }
 
+    context 'when system badge' do
+      before { badge.system = true }
+      it { is_expected.to be false }
+    end
+
+    context 'when has query' do
+      before { badge.query = 'SELECT id FROM users' }
+      it { is_expected.to be false }
+    end
+
+    context 'when neither system nor has query' do
+      before { badge.update_columns(system: false, query: nil) }
+      it { is_expected.to be true }
+    end
+  end
+end

@@ -15,10 +15,22 @@ describe Discourse do
 
   end
 
+  context 'running_in_rack' do
+    after do
+      ENV.delete("DISCOURSE_RUNNING_IN_RACK")
+    end
+
+    it 'should not be running in rack' do
+      expect(Discourse.running_in_rack?).to eq(false)
+      ENV["DISCOURSE_RUNNING_IN_RACK"] = "1"
+      expect(Discourse.running_in_rack?).to eq(true)
+    end
+  end
+
   context 'base_url' do
     context 'when https is off' do
       before do
-        SiteSetting.expects(:force_https?).returns(false)
+        SiteSetting.force_https = false
       end
 
       it 'has a non https base url' do
@@ -28,7 +40,7 @@ describe Discourse do
 
     context 'when https is on' do
       before do
-        SiteSetting.expects(:force_https?).returns(true)
+        SiteSetting.force_https = true
       end
 
       it 'has a non-ssl base url' do
@@ -38,7 +50,7 @@ describe Discourse do
 
     context 'with a non standard port specified' do
       before do
-        SiteSetting.stubs(:port).returns(3000)
+        SiteSetting.port = 3000
       end
 
       it "returns the non standart port in the base url" do
@@ -53,17 +65,12 @@ describe Discourse do
     let!(:another_admin) { Fabricate(:admin) }
 
     it 'returns the user specified by the site setting site_contact_username' do
-      SiteSetting.stubs(:site_contact_username).returns(another_admin.username)
-      expect(Discourse.site_contact_user).to eq(another_admin)
-    end
-
-    it 'returns the user specified by the site setting site_contact_username regardless of its case' do
-      SiteSetting.stubs(:site_contact_username).returns(another_admin.username.upcase)
+      SiteSetting.site_contact_username = another_admin.username
       expect(Discourse.site_contact_user).to eq(another_admin)
     end
 
     it 'returns the system user otherwise' do
-      SiteSetting.stubs(:site_contact_username).returns(nil)
+      SiteSetting.site_contact_username = nil
       expect(Discourse.site_contact_user.username).to eq("system")
     end
 
@@ -76,10 +83,10 @@ describe Discourse do
     end
 
     it "returns S3Store when S3 is enabled" do
-      SiteSetting.stubs(:enable_s3_uploads?).returns(true)
-      SiteSetting.stubs(:s3_upload_bucket).returns("s3_bucket")
-      SiteSetting.stubs(:s3_access_key_id).returns("s3_access_key_id")
-      SiteSetting.stubs(:s3_secret_access_key).returns("s3_secret_access_key")
+      SiteSetting.enable_s3_uploads = true
+      SiteSetting.s3_upload_bucket = "s3bucket"
+      SiteSetting.s3_access_key_id = "s3_access_key_id"
+      SiteSetting.s3_secret_access_key = "s3_secret_access_key"
       expect(Discourse.store).to be_a(FileStore::S3Store)
     end
 
@@ -108,17 +115,25 @@ describe Discourse do
       expect($redis.get(key)).to eq(nil)
     end
 
+    def get_readonly_message
+      messages = MessageBus.track_publish do
+        yield
+      end
+
+      messages.find { |m| m.channel == Discourse.readonly_channel }
+    end
+
     describe ".enable_readonly_mode" do
       it "adds a key in redis and publish a message through the message bus" do
         expect($redis.get(readonly_mode_key)).to eq(nil)
-        message = MessageBus.track_publish { Discourse.enable_readonly_mode }.first
+        message = get_readonly_message { Discourse.enable_readonly_mode }
         assert_readonly_mode(message, readonly_mode_key, readonly_mode_ttl)
       end
 
       context 'user enabled readonly mode' do
         it "adds a key in redis and publish a message through the message bus" do
           expect($redis.get(user_readonly_mode_key)).to eq(nil)
-          message = MessageBus.track_publish { Discourse.enable_readonly_mode(user_enabled: true) }.first
+          message = get_readonly_message { Discourse.enable_readonly_mode(user_readonly_mode_key) }
           assert_readonly_mode(message, user_readonly_mode_key)
         end
       end
@@ -128,9 +143,9 @@ describe Discourse do
       it "removes a key from redis and publish a message through the message bus" do
         Discourse.enable_readonly_mode
 
-        message = MessageBus.track_publish do
+        message = get_readonly_message do
           Discourse.disable_readonly_mode
-        end.first
+        end
 
         assert_readonly_mode_disabled(message, readonly_mode_key)
       end
@@ -138,7 +153,7 @@ describe Discourse do
       context 'user disabled readonly mode' do
         it "removes readonly key in redis and publish a message through the message bus" do
           Discourse.enable_readonly_mode(user_enabled: true)
-          message = MessageBus.track_publish { Discourse.disable_readonly_mode(user_enabled: true) }.first
+          message = get_readonly_message { Discourse.disable_readonly_mode(user_enabled: true) }
           assert_readonly_mode_disabled(message, user_readonly_mode_key)
         end
       end
@@ -157,6 +172,14 @@ describe Discourse do
       it "returns true when Discourse is recently read only" do
         Discourse.received_readonly!
         expect(Discourse.readonly_mode?).to eq(true)
+      end
+
+      it "returns true when user enabled readonly mode key is present in redis" do
+        Discourse.enable_readonly_mode(user_readonly_mode_key)
+        expect(Discourse.readonly_mode?).to eq(true)
+
+        Discourse.disable_readonly_mode(user_readonly_mode_key)
+        expect(Discourse.readonly_mode?).to eq(false)
       end
     end
 
@@ -196,11 +219,10 @@ describe Discourse do
     it "correctly passes extra context" do
       exception = StandardError.new
 
-      Discourse.handle_job_exception(exception, {message: "Doing a test", post_id: 31}, nil)
+      Discourse.handle_job_exception(exception, { message: "Doing a test", post_id: 31 }, nil)
       expect(logger.exception).to eq(exception)
       expect(logger.context.keys.sort).to eq([:current_db, :current_hostname, :message, :post_id].sort)
     end
   end
 
 end
-

@@ -6,6 +6,9 @@ import OpenComposer from "discourse/mixins/open-composer";
 import Category from 'discourse/models/category';
 import mobile from 'discourse/lib/mobile';
 import { findAll } from 'discourse/models/login-method';
+import { getOwner } from 'discourse-common/lib/get-owner';
+import { userPath } from 'discourse/lib/url';
+import Composer from 'discourse/models/composer';
 
 function unlessReadOnly(method, message) {
   return function() {
@@ -20,22 +23,9 @@ function unlessReadOnly(method, message) {
 const ApplicationRoute = Discourse.Route.extend(OpenComposer, {
   siteTitle: setting('title'),
 
-  _handleLogout() {
-    if (this.currentUser) {
-      this.currentUser.destroySession().then(() => logout(this.siteSettings, this.keyValueStore));
-    }
-  },
-
   actions: {
-
-    showSearchHelp() {
-      ajax("/static/search_help.html", { dataType: 'html' }).then(model => {
-        showModal('searchHelp', { model });
-      });
-    },
-
     toggleAnonymous() {
-      ajax("/users/toggle-anon", {method: 'POST'}).then(() => {
+      ajax(userPath("toggle-anon"), {method: 'POST'}).then(() => {
         window.location.reload();
       });
     },
@@ -53,13 +43,9 @@ const ApplicationRoute = Discourse.Route.extend(OpenComposer, {
 
     // Ember doesn't provider a router `willTransition` event so let's make one
     willTransition() {
-      var router = this.container.lookup('router:main');
+      var router = getOwner(this).lookup('router:main');
       Ember.run.once(router, router.trigger, 'willTransition');
       return this._super();
-    },
-
-    showTopicEntrance(data) {
-      this.controllerFor('topic-entrance').send('show', data);
     },
 
     postWasEnqueued(details) {
@@ -73,7 +59,6 @@ const ApplicationRoute = Discourse.Route.extend(OpenComposer, {
           reply = post ? window.location.protocol + "//" + window.location.host + post.get("url") : null;
 
       // used only once, one less dependency
-      const Composer = require('discourse/models/composer').default;
       return this.controllerFor('composer').open({
         action: Composer.PRIVATE_MESSAGE,
         usernames: recipient,
@@ -98,6 +83,10 @@ const ApplicationRoute = Discourse.Route.extend(OpenComposer, {
         c.error(xhrOrErr);
       }
 
+      if (xhrOrErr && xhrOrErr.status === 404) {
+        return this.transitionTo('exception-unknown');
+      }
+
       exceptionController.setProperties({ lastTransition: transition, thrown: xhrOrErr });
 
       this.intermediateTransitionTo('exception');
@@ -109,6 +98,7 @@ const ApplicationRoute = Discourse.Route.extend(OpenComposer, {
     showCreateAccount: unlessReadOnly('handleShowCreateAccount', I18n.t("read_only_mode.login_disabled")),
 
     showForgotPassword() {
+      this.controllerFor('forgot-password').setProperties({ offerHelp: null, helpSeen: false });
       showModal('forgotPassword', { title: 'forgot_password.title' });
     },
 
@@ -135,26 +125,21 @@ const ApplicationRoute = Discourse.Route.extend(OpenComposer, {
       user clicks "No", reopenModal. If user clicks "Yes", be sure to call closeModal.
     **/
     hideModal() {
-      $('#discourse-modal').modal('hide');
+      $('.d-modal.fixed-modal').modal('hide');
     },
 
     reopenModal() {
-      $('#discourse-modal').modal('show');
+      $('.d-modal.fixed-modal').modal('show');
     },
 
     editCategory(category) {
-      Category.reloadById(category.get('id')).then((atts) => {
+      Category.reloadById(category.get('id')).then(atts => {
         const model = this.store.createRecord('category', atts.category);
         model.setupGroupsAndPermissions();
         this.site.updateCategory(model);
-        showModal('editCategory', { model });
-        this.controllerFor('editCategory').set('selectedTab', 'general');
+        showModal('edit-category', { model });
+        this.controllerFor('edit-category').set('selectedTab', 'general');
       });
-    },
-
-    deleteSpammer(user) {
-      this.send('closeModal');
-      user.deleteAsSpammer(function() { window.location.reload(); });
     },
 
     checkEmail(user) {
@@ -162,10 +147,9 @@ const ApplicationRoute = Discourse.Route.extend(OpenComposer, {
     },
 
     changeBulkTemplate(w) {
-      const controllerName = w.replace('modal/', ''),
-            factory = this.container.lookupFactory('controller:' + controllerName);
-
-      this.render(w, {into: 'modal/topic-bulk-actions', outlet: 'bulkOutlet', controller: factory ? controllerName : 'topic-bulk-actions'});
+      const controllerName = w.replace('modal/', '');
+      const controller = getOwner(this).lookup('controller:' + controllerName);
+      this.render(w, {into: 'modal/topic-bulk-actions', outlet: 'bulkOutlet', controller: controller ? controllerName : 'topic-bulk-actions'});
     },
 
     createNewTopicViaParams(title, body, category_id, category, tags) {
@@ -183,6 +167,13 @@ const ApplicationRoute = Discourse.Route.extend(OpenComposer, {
       // Support for callbacks once the application has activated
       ApplicationRoute.trigger('activate');
     });
+  },
+
+  renderTemplate() {
+    this.render('application');
+    this.render('user-card', { into: 'application', outlet: 'user-card' });
+    this.render('modal', { into: 'application', outlet: 'modal' });
+    this.render('composer', { into: 'application', outlet: 'composer' });
   },
 
   handleShowLogin() {
@@ -204,7 +195,10 @@ const ApplicationRoute = Discourse.Route.extend(OpenComposer, {
   },
 
   _autoLogin(modal, modalClass, notAuto) {
-    const methods = findAll(this.siteSettings);
+    const methods = findAll(this.siteSettings,
+                            getOwner(this).lookup('capabilities:main'),
+                            this.site.isMobileDevice);
+
     if (!this.siteSettings.enable_local_logins && methods.length === 1) {
       this.controllerFor('login').send('externalLogin', methods[0]);
     } else {
@@ -214,6 +208,11 @@ const ApplicationRoute = Discourse.Route.extend(OpenComposer, {
     }
   },
 
+  _handleLogout() {
+    if (this.currentUser) {
+      this.currentUser.destroySession().then(() => logout(this.siteSettings, this.keyValueStore));
+    }
+  },
 });
 
 RSVP.EventTarget.mixin(ApplicationRoute);

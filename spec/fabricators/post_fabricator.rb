@@ -1,6 +1,6 @@
 Fabricator(:post) do
   user
-  topic {|attrs| Fabricate(:topic, user: attrs[:user] ) }
+  topic { |attrs| Fabricate(:topic, user: attrs[:user]) }
   raw "Hello world"
   post_type Post.types[:regular]
 end
@@ -17,13 +17,13 @@ Fabricator(:post_with_youtube, from: :post) do
 end
 
 Fabricator(:old_post, from: :post) do
-  topic {|attrs| Fabricate(:topic, user: attrs[:user], created_at: (DateTime.now - 100) ) }
+  topic { |attrs| Fabricate(:topic, user: attrs[:user], created_at: (DateTime.now - 100)) }
   created_at (DateTime.now - 100)
 end
 
 Fabricator(:moderator_post, from: :post) do
   user
-  topic {|attrs| Fabricate(:topic, user: attrs[:user] ) }
+  topic { |attrs| Fabricate(:topic, user: attrs[:user]) }
   post_type Post.types[:moderator_action]
   raw "Hello world"
 end
@@ -114,21 +114,33 @@ And a link to google: http://google.com
 And a secure link to google: https://google.com
 And a markdown link: [forumwarz](http://forumwarz.com)
 And a markdown link with a period after it [codinghorror](http://www.codinghorror.com/blog).
+And one with a hash http://discourse.org#faq
   "
 end
 
 Fabricator(:private_message_post, from: :post) do
   user
   topic do |attrs|
-    Fabricate( :private_message_topic,
+    Fabricate(:private_message_topic,
       user: attrs[:user],
       created_at: attrs[:created_at],
       subtype: TopicSubtype.user_to_user,
       topic_allowed_users: [
-        Fabricate.build(:topic_allowed_user, user_id: attrs[:user].id),
-        Fabricate.build(:topic_allowed_user, user_id: Fabricate(:user).id)
+        Fabricate.build(:topic_allowed_user, user: attrs[:user]),
+        Fabricate.build(:topic_allowed_user, user: Fabricate(:user))
       ]
     )
   end
   raw "Ssshh! This is our secret conversation!"
+end
+
+Fabricator(:post_via_email, from: :post) do
+  incoming_email
+  via_email true
+
+  after_create do |post|
+    incoming_email.topic = post.topic
+    incoming_email.post = post
+    incoming_email.user = post.user
+  end
 end

@@ -1,49 +1,76 @@
 import { observes } from 'ember-addons/ember-computed-decorators';
 import TextField from 'discourse/components/text-field';
 import userSearch from 'discourse/lib/user-search';
+import { findRawTemplate } from 'discourse/lib/raw-templates';
 
 export default TextField.extend({
+  autocorrect: false,
+  autocapitalize: false,
+  name: 'user-selector',
 
-  didInsertElement() {
+  @observes('usernames')
+  _update() {
+    if (this.get('canReceiveUpdates') === 'true')
+      this.didInsertElement({updateData: true});
+  },
+
+  didInsertElement(opts) {
     this._super();
+
+    const bool = (n => {
+      const val = this.get(n);
+      return val === true || val === "true";
+    });
+
     var self = this,
         selected = [],
         groups = [],
         currentUser = this.currentUser,
-        includeMentionableGroups = this.get('includeMentionableGroups') === 'true',
-        includeGroups = this.get('includeGroups') === 'true',
-        allowedUsers = this.get('allowedUsers') === 'true';
+        includeMentionableGroups = bool('includeMentionableGroups'),
+        includeMessageableGroups = bool('includeMessageableGroups'),
+        includeGroups = bool('includeGroups'),
+        allowedUsers = bool('allowedUsers'),
+        excludeCurrentUser = bool('excludeCurrentUser'),
+        single = bool('single'),
+        allowAny = bool('allowAny'),
+        disabled = bool('disabled');
 
     function excludedUsernames() {
       // hack works around some issues with allowAny eventing
-      const usernames = self.get('single') ? [] : selected;
+      const usernames = single ? [] : selected;
 
-      if (currentUser && self.get('excludeCurrentUser')) {
+      if (currentUser && excludeCurrentUser) {
         return usernames.concat([currentUser.get('username')]);
       }
       return usernames;
     }
 
     this.$().val(this.get('usernames')).autocomplete({
-      template: this.container.lookup('template:user-selector-autocomplete.raw'),
-      disabled: this.get('disabled'),
-      single: this.get('single'),
-      allowAny: this.get('allowAny'),
+      template: findRawTemplate('user-selector-autocomplete'),
+      disabled: disabled,
+      single: single,
+      allowAny: allowAny,
+      updateData: (opts && opts.updateData) ? opts.updateData : false,
 
-      dataSource: function(term) {
+      dataSource(term) {
+        const termRegex = Discourse.User.currentProp('can_send_private_email_messages') ?
+          /[^a-zA-Z0-9_\-\.@\+]/ : /[^a-zA-Z0-9_\-\.]/;
+
         var results = userSearch({
-          term: term.replace(/[^a-zA-Z0-9_\-\.]/, ''),
+          term: term.replace(termRegex, ''),
           topicId: self.get('topicId'),
           exclude: excludedUsernames(),
           includeGroups,
           allowedUsers,
-          includeMentionableGroups
+          includeMentionableGroups,
+          includeMessageableGroups,
+          group: self.get("group")
         });
 
         return results;
       },
 
-      transformComplete: function(v) {
+      transformComplete(v) {
         if (v.username || v.name) {
           if (!v.username) { groups.push(v.name); }
           return v.username || v.name;
@@ -55,7 +82,7 @@ export default TextField.extend({
         }
       },
 
-      onChangeItems: function(items) {
+      onChangeItems(items) {
         var hasGroups = false;
         items = items.map(function(i) {
           if (groups.indexOf(i) > -1) { hasGroups = true; }
@@ -68,7 +95,7 @@ export default TextField.extend({
         if (self.get('onChangeCallback')) self.sendAction('onChangeCallback');
       },
 
-      reverseTransform: function(i) {
+      reverseTransform(i) {
         return { username: i };
       }
 

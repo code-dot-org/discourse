@@ -1,4 +1,5 @@
 import DiscourseURL from 'discourse/lib/url';
+import { ID_CONSTRAINT } from 'discourse/models/topic';
 
 let isTransitioning = false,
     scheduledReplace = null,
@@ -14,17 +15,16 @@ const TopicRoute = Discourse.Route.extend({
   queryParams: {
     filter: { replace: true },
     username_filters: { replace: true },
-    show_deleted: { replace: true }
   },
 
   titleToken() {
     const model = this.modelFor('topic');
     if (model) {
-      const result = model.get('title'),
+      const result = model.get('unicode_title') || model.get('title'),
             cat = model.get('category');
 
       // Only display uncategorized in the title tag if it was renamed
-      if (cat && !(cat.get('isUncategorizedCategory') && cat.get('name').toLowerCase() === "uncategorized")) {
+      if (this.siteSettings.topic_page_title_includes_category && cat && !(cat.get('isUncategorizedCategory') && cat.get('name').toLowerCase() === "uncategorized")) {
         let catName = cat.get('name');
 
         const parentCategory = cat.get('parentCategory');
@@ -41,18 +41,22 @@ const TopicRoute = Discourse.Route.extend({
   actions: {
 
     showFlags(model) {
-      showModal('flag', { model });
-      this.controllerFor('flag').setProperties({ selected: null, flagTopic: false });
+      let controller = showModal('flag', { model });
+      controller.setProperties({ flagTopic: false });
     },
 
-    showFlagTopic(model) {
-      showModal('flag',  { model });
-      this.controllerFor('flag').setProperties({ selected: null, flagTopic: true });
+    showFlagTopic() {
+      const model = this.modelFor('topic');
+      let controller = showModal('flag',  { model });
+      controller.setProperties({ flagTopic: true });
     },
 
-    showAutoClose() {
-      showModal('edit-topic-auto-close', { model: this.modelFor('topic') });
-      this.controllerFor('modal').set('modalClass', 'edit-auto-close-modal');
+    showTopicStatusUpdate() {
+      const model = this.modelFor('topic');
+      model.set('topic_timer', Ember.Object.create(model.get('topic_timer')));
+      model.set('private_topic_timer', Ember.Object.create(model.get('private_topic_timer')));
+      showModal('edit-topic-timer', { model });
+      this.controllerFor('modal').set('modalClass', 'edit-topic-timer-modal');
     },
 
     showChangeTimestamp() {
@@ -72,9 +76,17 @@ const TopicRoute = Discourse.Route.extend({
 
     showHistory(model) {
       showModal('history', { model });
-      this.controllerFor('history').refresh(model.get("id"), "latest");
-      this.controllerFor('history').set('post', model);
+      const historyController = this.controllerFor('history');
+
+      historyController.refresh(model.get("id"), "latest");
+      historyController.set('post', model);
+      historyController.set('topicController', this.controllerFor('topic'));
+
       this.controllerFor('modal').set('modalClass', 'history-modal');
+    },
+
+    showGrantBadgeModal() {
+      showModal('grant-badge', { model: this.modelFor('topic'), title: 'admin.badges.grant_badge' });
     },
 
     showRawEmail(model) {
@@ -117,7 +129,6 @@ const TopicRoute = Discourse.Route.extend({
 
     willTransition() {
       this._super();
-      this.controllerFor("quote-button").deselectText();
       Em.run.cancel(scheduledReplace);
       isTransitioning = true;
       return true;
@@ -139,7 +150,6 @@ const TopicRoute = Discourse.Route.extend({
   setupParams(topic, params) {
     const postStream = topic.get('postStream');
     postStream.set('summary', Em.get(params, 'filter') === 'summary');
-    postStream.set('show_deleted', !!Em.get(params, 'show_deleted'));
 
     const usernames = Em.get(params, 'username_filters'),
         userFilters = postStream.get('userFilters');
@@ -153,6 +163,10 @@ const TopicRoute = Discourse.Route.extend({
   },
 
   model(params, transition) {
+    if (params.slug.match(ID_CONSTRAINT)) {
+      return DiscourseURL.routeTo(`/t/topic/${params.slug}/${params.id}`, { replaceURL: true });
+    };
+
     const queryParams = transition.queryParams;
 
     let topic = this.modelFor('topic');
@@ -185,7 +199,6 @@ const TopicRoute = Discourse.Route.extend({
     postStream.cancelFilter();
 
     topicController.set('multiSelect', false);
-    topicController.unsubscribe();
     this.controllerFor('composer').set('topic', null);
     this.screenTrack.stop();
 
@@ -208,13 +221,17 @@ const TopicRoute = Discourse.Route.extend({
 
     // close the multi select when switching topics
     controller.set('multiSelect', false);
+    controller.get('quoteState').clear();
 
     this.controllerFor('composer').set('topic', model);
     this.topicTrackingState.trackIncoming('all');
-    controller.subscribe();
 
     // We reset screen tracking every time a topic is entered
     this.screenTrack.start(model.get('id'), controller);
+
+    Ember.run.scheduleOnce('afterRender', () => {
+      this.appEvents.trigger('header:update-topic', model);
+    });
   }
 
 });

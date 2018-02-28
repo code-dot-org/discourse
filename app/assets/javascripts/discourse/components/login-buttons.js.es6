@@ -1,4 +1,5 @@
 import { findAll }  from 'discourse/models/login-method';
+import computed from 'ember-addons/ember-computed-decorators';
 
 export default Ember.Component.extend({
   elementId: 'login-buttons',
@@ -6,13 +7,18 @@ export default Ember.Component.extend({
 
   hidden: Ember.computed.equal('buttons.length', 0),
 
-  buttons: function() {
-    return findAll(this.siteSettings);
-  }.property(),
+  @computed
+  buttons() {
+    return findAll(this.siteSettings, this.capabilities, this.site.isMobileDevice);
+  },
 
   actions: {
-    externalLogin: function(provider) {
-      this.sendAction('action', provider);
+    emailLogin() {
+      this.sendAction('emailLogin');
+    },
+
+    externalLogin(provider) {
+      this.sendAction('externalLogin', provider);
     }
   }
 });

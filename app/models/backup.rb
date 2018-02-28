@@ -10,9 +10,9 @@ class Backup
 
   def self.all
     Dir.glob(File.join(Backup.base_directory, "*.{gz,tgz}"))
-       .sort_by { |file| File.mtime(file) }
-       .reverse
-       .map { |backup| Backup.create_from_filename(File.basename(backup)) }
+      .sort_by { |file| File.mtime(file) }
+      .reverse
+      .map { |backup| Backup.create_from_filename(File.basename(backup)) }
   end
 
   def self.[](filename)
@@ -31,6 +31,7 @@ class Backup
 
   def after_create_hook
     upload_to_s3 if SiteSetting.enable_s3_backups?
+    DiscourseEvent.trigger(:backup_created)
   end
 
   def after_remove_hook
@@ -45,7 +46,7 @@ class Backup
 
   def s3
     require "s3_helper" unless defined? S3Helper
-    @s3_helper ||= S3Helper.new(s3_bucket)
+    @s3_helper ||= S3Helper.new(s3_bucket, '', S3Helper.s3_options(SiteSetting))
   end
 
   def upload_to_s3
@@ -61,7 +62,9 @@ class Backup
   end
 
   def self.base_directory
-    File.join(Rails.root, "public", "backups", RailsMultisite::ConnectionManagement.current_db)
+    base_directory = File.join(Rails.root, "public", "backups", RailsMultisite::ConnectionManagement.current_db)
+    FileUtils.mkdir_p(base_directory) unless Dir.exists?(base_directory)
+    base_directory
   end
 
   def self.chunk_path(identifier, filename, chunk_number)

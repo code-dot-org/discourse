@@ -1,6 +1,7 @@
 import Composer from 'discourse/models/composer';
 import showModal from "discourse/lib/show-modal";
 import { findTopicList } from 'discourse/routes/build-topic-route';
+import PermissionType from 'discourse/models/permission-type';
 
 export default Discourse.Route.extend({
   navMode: 'latest',
@@ -13,6 +14,14 @@ export default Discourse.Route.extend({
   model(params) {
     var tag = this.store.createRecord("tag", { id: Handlebars.Utils.escapeExpression(params.tag_id) }),
         f = '';
+
+    if (params.additional_tags) {
+      this.set("additionalTags", params.additional_tags.split('/').map((t) => {
+        return this.store.createRecord("tag", { id: Handlebars.Utils.escapeExpression(t) }).id;
+      }));
+    } else {
+      this.set('additionalTags', null);
+    }
 
     if (params.category) {
       f = 'c/';
@@ -54,20 +63,25 @@ export default Discourse.Route.extend({
       } else {
         params.filter = `tags/c/${categorySlug}/${tag_id}/l/${filter}`;
       }
-
-      this.set('category', category);
+      if (category) {
+        category.setupGroupsAndPermissions();
+        this.set('category', category);
+      }
+    } else if (this.get("additionalTags")) {
+      params.filter = `tags/intersection/${tag_id}/${this.get('additionalTags').join('/')}`;
+      this.set('category', null);
     } else {
       params.filter = `tags/${tag_id}/l/${filter}`;
       this.set('category', null);
     }
 
-    return findTopicList(this.store, this.topicTrackingState, params.filter, params, {}).then(function(list) {
-      controller.set('list', list);
-      controller.set('canCreateTopic', list.get('can_create_topic'));
-      if (list.topic_list.tags) {
-        Discourse.Site.currentProp('top_tags', list.topic_list.tags);
-      }
-      controller.set('loading', false);
+    return findTopicList(this.store, this.topicTrackingState, params.filter, params, {}).then((list) => {
+      controller.setProperties({
+        list: list,
+        canCreateTopic: list.get('can_create_topic'),
+        loading: false,
+        canCreateTopicOnCategory: this.get('category.permission') === PermissionType.FULL
+      });
     });
   },
 
@@ -94,6 +108,7 @@ export default Discourse.Route.extend({
     this.controllerFor('tags.show').setProperties({
       model,
       tag: model,
+      additionalTags: this.get('additionalTags'),
       category: this.get('category'),
       filterMode: this.get('filterMode'),
       navMode: this.get('navMode'),
@@ -123,23 +138,13 @@ export default Discourse.Route.extend({
         // Pre-fill the tags input field
         if (controller.get('model.id')) {
           var c = self.controllerFor('composer').get('model');
-          c.set('tags', [controller.get('model.id')]);
+          c.set('tags', _.flatten([controller.get('model.id')], controller.get('additionalTags')));
         }
       });
     },
 
     didTransition() {
       this.controllerFor("tags.show")._showFooter();
-      return true;
-    },
-
-    willTransition(transition) {
-      if (!Discourse.SiteSettings.show_filter_by_tag) { return true; }
-
-      if ((transition.targetName.indexOf("discovery.parentCategory") !== -1 ||
-            transition.targetName.indexOf("discovery.category") !== -1) && !transition.queryParams.allTags ) {
-        this.transitionTo("/tags" + transition.intent.url + "/" + this.currentModel.get("id"));
-      }
       return true;
     }
   }

@@ -10,7 +10,7 @@ describe TopicRetriever do
   describe "#retrieve" do
     context "when host is invalid" do
       before do
-        topic_retriever.stubs(:invalid_host?).returns(true)
+        topic_retriever.stubs(:invalid_url?).returns(true)
       end
 
       it "does not perform_retrieve" do
@@ -31,9 +31,9 @@ describe TopicRetriever do
     end
 
     context "when host is not invalid" do
-        before do
-          topic_retriever.stubs(:invalid_host?).returns(false)
-        end
+      before do
+        topic_retriever.stubs(:invalid_url?).returns(false)
+      end
 
       context "when topics have been retrieived recently" do
         before do

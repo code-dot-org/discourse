@@ -74,7 +74,7 @@ export function toTitleCase(str) {
 
 export function longDate(dt) {
   if (!dt) return;
-  return moment(dt).longDate();
+  return moment(dt).format(I18n.t("dates.long_with_year"));
 }
 
 // suppress year, if current year
@@ -129,10 +129,63 @@ function wrapAgo(dateStr) {
   return I18n.t("dates.wrap_ago", { date: dateStr });
 }
 
+export function durationTiny(distance, ageOpts) {
+  if (typeof(distance) !== 'number') { return '&mdash;'; }
+
+  const dividedDistance = Math.round(distance / 60.0);
+  const distanceInMinutes = (dividedDistance < 1) ? 1 : dividedDistance;
+
+  const t = function(key, opts) {
+    const result = I18n.t("dates.tiny." + key, opts);
+    return (ageOpts && ageOpts.addAgo) ? wrapAgo(result) : result;
+  };
+
+  let formatted;
+
+  switch(true) {
+    case(distance <= 59):
+      formatted = t("less_than_x_minutes", {count: 1});
+      break;
+    case(distanceInMinutes >= 0 && distanceInMinutes <= 44):
+      formatted = t("x_minutes", {count: distanceInMinutes});
+      break;
+    case(distanceInMinutes >= 45 && distanceInMinutes <= 89):
+      formatted = t("about_x_hours", {count: 1});
+      break;
+    case(distanceInMinutes >= 90 && distanceInMinutes <= 1409):
+      formatted = t("about_x_hours", {count: Math.round(distanceInMinutes / 60.0)});
+      break;
+    case(distanceInMinutes >= 1410 && distanceInMinutes <= 2519):
+      formatted = t("x_days", {count: 1});
+      break;
+    case(distanceInMinutes >= 2520 && distanceInMinutes <= 129599):
+      formatted = t("x_days", {count: Math.round(distanceInMinutes / 1440.0)});
+      break;
+    case(distanceInMinutes >= 129600 && distanceInMinutes <= 525599):
+      formatted = t("x_months", {count: Math.round(distanceInMinutes / 43200.0)});
+      break;
+    default:
+      const numYears = distanceInMinutes / 525600.0;
+      const remainder = numYears % 1;
+      if (remainder < 0.25) {
+        formatted = t("about_x_years", {count: parseInt(numYears)});
+      } else if (remainder < 0.75) {
+        formatted = t("over_x_years", {count: parseInt(numYears)});
+      } else {
+        formatted = t("almost_x_years", {count: parseInt(numYears) + 1});
+      }
+
+      break;
+  }
+
+  return formatted;
+}
+
 function relativeAgeTiny(date, ageOpts) {
   const format = "tiny";
   const distance = Math.round((new Date() - date) / 1000);
-  const distanceInMinutes = Math.round(distance / 60.0);
+  const dividedDistance = Math.round(distance / 60.0);
+  const distanceInMinutes = (dividedDistance < 1) ? 1 : dividedDistance;
 
   let formatted;
   const t = function(key, opts) {
@@ -140,11 +193,9 @@ function relativeAgeTiny(date, ageOpts) {
     return (ageOpts && ageOpts.addAgo) ? wrapAgo(result) : result;
   };
 
+
   switch(true) {
-    case(distanceInMinutes < 1):
-      formatted = t("less_than_x_minutes", {count: 1});
-      break;
-    case(distanceInMinutes >= 1 && distanceInMinutes <= 44):
+    case(distanceInMinutes >= 0 && distanceInMinutes <= 44):
       formatted = t("x_minutes", {count: distanceInMinutes});
       break;
     case(distanceInMinutes >= 45 && distanceInMinutes <= 89):
@@ -259,10 +310,29 @@ export function number(val) {
   if (val > 999999) {
     formattedNumber = I18n.toNumber(val / 1000000, {precision: 1});
     return I18n.t("number.short.millions", {number: formattedNumber});
-  }
-  if (val > 999) {
+  } else if (val > 99999) {
+    formattedNumber = I18n.toNumber(val / 1000, {precision: 0});
+    return I18n.t("number.short.thousands", {number: formattedNumber});
+  } else if (val > 999) {
     formattedNumber = I18n.toNumber(val / 1000, {precision: 1});
     return I18n.t("number.short.thousands", {number: formattedNumber});
   }
   return val.toString();
+}
+
+export function ensureJSON(json) {
+  return typeof json === 'string' ? JSON.parse(json) : json;
+}
+
+export function plainJSON(val) {
+  let json = ensureJSON(val);
+  let headers = '';
+  Object.keys(json).forEach(k => {
+    headers += `${k}: ${json[k]}\n`;
+  });
+  return headers;
+}
+
+export function prettyJSON(json) {
+  return JSON.stringify(ensureJSON(json), null, 2);
 }

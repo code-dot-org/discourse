@@ -1,14 +1,24 @@
 require_dependency 'discourse'
 
 class PostActionsController < ApplicationController
-  before_filter :ensure_logged_in
-  before_filter :fetch_post_from_params
-  before_filter :fetch_post_action_type_id_from_params
+  requires_login
+
+  before_action :fetch_post_from_params
+  before_action :fetch_post_action_type_id_from_params
 
   def create
+    raise Discourse::NotFound if @post.blank?
+
     taken = PostAction.counts_for([@post], current_user)[@post.id]
-    guardian.ensure_post_can_act!(@post, PostActionType.types[@post_action_type_id], taken_actions: taken)
-    guardian.ensure_post_can_act!(@post, PostActionType.types[@post_action_type_id], is_warning: params[:is_warning])
+
+    guardian.ensure_post_can_act!(
+      @post,
+      PostActionType.types[@post_action_type_id],
+      opts: {
+        is_warning: params[:is_warning],
+        taken_actions: taken
+      }
+    )
 
     args = {}
     args[:message] = params[:message] if params[:message].present?
@@ -77,7 +87,6 @@ class PostActionsController < ApplicationController
       finder = finder.with_deleted if guardian.is_staff?
 
       @post = finder.first
-      guardian.ensure_can_see!(@post)
     end
 
     def fetch_post_action_type_id_from_params

@@ -1,5 +1,3 @@
-const INDEX_STREAM_ROUTES = ["user.deletedPosts", "user.flaggedPosts", "userActivity.index"];
-
 import Draft from 'discourse/models/draft';
 
 export default Discourse.Route.extend({
@@ -16,10 +14,18 @@ export default Discourse.Route.extend({
     willTransition(transition) {
       // will reset the indexStream when transitioning to routes that aren't "indexStream"
       // otherwise the "header" will jump
-      const isIndexStream = INDEX_STREAM_ROUTES.indexOf(transition.targetName) !== -1;
+      const isIndexStream = transition.targetName === "user.summary";
       this.controllerFor('user').set('indexStream', isIndexStream);
       return true;
-    }
+    },
+
+    undoRevokeApiKey(key) {
+      key.undoRevoke();
+    },
+
+    revokeApiKey(key) {
+      key.revoke();
+    },
   },
 
   beforeModel() {
@@ -77,14 +83,14 @@ export default Discourse.Route.extend({
   activate() {
     this._super();
     const user = this.modelFor('user');
-    this.messageBus.subscribe("/users/" + user.get('username_lower'), function(data) {
+    this.messageBus.subscribe("/u/" + user.get('username_lower'), function(data) {
       user.loadUserAction(data);
     });
   },
 
   deactivate() {
     this._super();
-    this.messageBus.unsubscribe("/users/" + this.modelFor('user').get('username_lower'));
+    this.messageBus.unsubscribe("/u/" + this.modelFor('user').get('username_lower'));
 
     // Remove the search context
     this.searchService.set('searchContext', null);

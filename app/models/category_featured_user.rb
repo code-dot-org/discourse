@@ -8,7 +8,7 @@ class CategoryFeaturedUser < ActiveRecord::Base
 
   def self.feature_users_in(category_or_category_id)
     category_id =
-      if category_or_category_id.is_a?(Fixnum)
+      if category_or_category_id.is_a?(Integer)
         category_or_category_id
       else
         category_or_category_id.id
@@ -30,13 +30,14 @@ class CategoryFeaturedUser < ActiveRecord::Base
       LIMIT :max_featured_users;
     ", category_id: category_id, max_featured_users: max_featured_users
 
-    user_ids = most_recent_user_ids.map{|uc| uc['user_id'].to_i}
+    user_ids = most_recent_user_ids.map { |uc| uc['user_id'].to_i }
     current = CategoryFeaturedUser.where(category_id: category_id).order(:id).pluck(:user_id)
 
     return if current == user_ids
 
     transaction do
-      CategoryFeaturedUser.delete_all category_id: category_id
+      CategoryFeaturedUser.where(category_id: category_id).delete_all
+
       user_ids.each do |user_id|
         create(category_id: category_id, user_id: user_id)
       end

@@ -1,22 +1,41 @@
 import CanCheckEmails from 'discourse/mixins/can-check-emails';
 import computed from 'ember-addons/ember-computed-decorators';
-import UserAction from 'discourse/models/user-action';
 import User from 'discourse/models/user';
+import optionalService from 'discourse/lib/optional-service';
 
 export default Ember.Controller.extend(CanCheckEmails, {
   indexStream: false,
-  userActionType: null,
-  needs: ['application','user-notifications', 'user-topics-list'],
-  currentPath: Em.computed.alias('controllers.application.currentPath'),
+  application: Ember.inject.controller(),
+  userNotifications: Ember.inject.controller('user-notifications'),
+  currentPath: Ember.computed.alias('application.currentPath'),
+  adminTools: optionalService(),
 
   @computed("content.username")
   viewingSelf(username) {
     return username === User.currentProp('username');
   },
 
+  @computed('model.profileBackground')
+  hasProfileBackground(background) {
+    return !Ember.isEmpty(background.toString());
+  },
+
   @computed('indexStream', 'viewingSelf', 'forceExpand')
   collapsedInfo(indexStream, viewingSelf, forceExpand){
     return (!indexStream || viewingSelf) && !forceExpand;
+  },
+
+  hasGivenFlags: Ember.computed.gt('model.number_of_flags_given', 0),
+  hasFlaggedPosts: Ember.computed.gt('model.number_of_flagged_posts', 0),
+  hasDeletedPosts: Ember.computed.gt('model.number_of_deleted_posts', 0),
+  hasBeenSuspended: Ember.computed.gt('model.number_of_suspensions', 0),
+  hasReceivedWarnings: Ember.computed.gt('model.warnings_received_count', 0),
+
+  showStaffCounters: Ember.computed.or('hasGivenFlags', 'hasFlaggedPosts', 'hasDeletedPosts', 'hasBeenSuspended', 'hasReceivedWarnings'),
+
+  @computed('model.isSuspended', 'currentUser.staff')
+  isNotSuspendedOrIsStaff(isSuspended, isStaff) {
+    return !isSuspended || isStaff;
   },
 
   linkWebsite: Em.computed.not('model.isBasic'),
@@ -33,7 +52,7 @@ export default Ember.Controller.extend(CanCheckEmails, {
 
   @computed('viewingSelf', 'currentUser.admin')
   showPrivateMessages(viewingSelf, isAdmin) {
-    return this.siteSettings.enable_private_messages && (viewingSelf || isAdmin);
+    return this.siteSettings.enable_personal_messages && (viewingSelf || isAdmin);
   },
 
   @computed('viewingSelf', 'currentUser.staff')
@@ -51,18 +70,6 @@ export default Ember.Controller.extend(CanCheckEmails, {
     return Discourse.SiteSettings.enable_badges && badgeCount > 0;
   },
 
-  @computed("userActionType")
-  privateMessageView(userActionType) {
-    return (userActionType === UserAction.TYPES.messages_sent) ||
-           (userActionType === UserAction.TYPES.messages_received);
-  },
-
-  @computed("indexStream", "userActionType")
-  showActionTypeSummary(indexStream,userActionType, showPMs) {
-    return (indexStream || userActionType) && !showPMs;
-  },
-
-
   @computed()
   canInviteToForum() {
     return User.currentProp('can_invite_to_forum');
@@ -75,8 +82,8 @@ export default Ember.Controller.extend(CanCheckEmails, {
     const siteUserFields = this.site.get('user_fields');
     if (!Ember.isEmpty(siteUserFields)) {
       const userFields = this.get('model.user_fields');
-      return siteUserFields.filterProperty('show_on_profile', true).sortBy('position').map(field => {
-        field.dasherized_name = field.get('name').dasherize();
+      return siteUserFields.filterBy('show_on_profile', true).sortBy('position').map(field => {
+        Ember.set(field, 'dasherized_name', field.get('name').dasherize());
         const value = userFields ? userFields[field.get('id').toString()] : null;
         return Ember.isEmpty(value) ? null : Ember.Object.create({ value, field });
       }).compact();
@@ -88,11 +95,15 @@ export default Ember.Controller.extend(CanCheckEmails, {
       this.set('forceExpand', true);
     },
 
-    adminDelete() {
-      // I really want this deferred, don't want to bring in all this code till used
-      const AdminUser = require('admin/models/admin-user').default;
-      AdminUser.find(this.get('model.id')).then(user => user.destroy({deletePosts: true}));
+    showSuspensions() {
+      this.get('adminTools').showActionLogs(this, {
+        target_user: this.get('model.username'),
+        action_name: 'suspend_user'
+      });
     },
 
+    adminDelete() {
+      this.get('adminTools').deleteUser(this.get('model.id'));
+    }
   }
 });

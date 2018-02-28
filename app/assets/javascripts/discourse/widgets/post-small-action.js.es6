@@ -1,9 +1,34 @@
 import { createWidget } from 'discourse/widgets/widget';
 import RawHtml from 'discourse/widgets/raw-html';
-import { iconNode } from 'discourse/helpers/fa-icon';
+import { iconNode } from 'discourse-common/lib/icon-library';
 import { h } from 'virtual-dom';
-import { actionDescriptionHtml } from 'discourse/components/small-action';
 import { avatarFor } from 'discourse/widgets/post';
+import { userPath } from 'discourse/lib/url';
+import { autoUpdatingRelativeAge } from 'discourse/lib/formatter';
+
+export function actionDescriptionHtml(actionCode, createdAt, username) {
+  const dt = new Date(createdAt);
+  const when = autoUpdatingRelativeAge(dt, { format: 'medium-with-ago' });
+
+  var who = "";
+  if (username) {
+    if (actionCode === "invited_group" || actionCode === "removed_group") {
+      who = `<a class="mention-group" href="/groups/${username}">@${username}</a>`;
+    } else {
+      who = `<a class="mention" href="${userPath(username)}">@${username}</a>`;
+    }
+  }
+  return I18n.t(`action_codes.${actionCode}`, { who, when }).htmlSafe();
+}
+
+export function actionDescription(actionCode, createdAt, username) {
+  return function() {
+    const ac = this.get(actionCode);
+    if (ac) {
+      return actionDescriptionHtml(ac, this.get(createdAt), this.get(username));
+    }
+  }.property(actionCode, createdAt);
+}
 
 const icons = {
   'closed.enabled': 'lock',
@@ -16,15 +41,22 @@ const icons = {
   'pinned.disabled': 'thumb-tack unpinned',
   'pinned_globally.enabled': 'thumb-tack',
   'pinned_globally.disabled': 'thumb-tack unpinned',
+  'banner.enabled': 'thumb-tack',
+  'banner.disabled': 'thumb-tack unpinned',
   'visible.enabled': 'eye',
   'visible.disabled': 'eye-slash',
   'split_topic': 'sign-out',
   'invited_user': 'plus-circle',
   'invited_group': 'plus-circle',
+  'user_left': 'minus-circle',
   'removed_user': 'minus-circle',
   'removed_group': 'minus-circle',
   'public_topic': 'comment',
   'private_topic': 'envelope'
+};
+
+export function addPostSmallActionIcon(key, icon) {
+  icons[key] = icon;
 };
 
 export default createWidget('post-small-action', {
@@ -44,6 +76,7 @@ export default createWidget('post-small-action', {
 
     if (attrs.canDelete) {
       contents.push(this.attach('button', {
+        className: 'small-action-delete',
         icon: 'times',
         action: 'deletePost',
         title: 'post.controls.delete'
@@ -52,6 +85,7 @@ export default createWidget('post-small-action', {
 
     if (attrs.canEdit) {
       contents.push(this.attach('button', {
+        className: 'small-action-edit',
         icon: 'pencil',
         action: 'editPost',
         title: 'post.controls.edit'

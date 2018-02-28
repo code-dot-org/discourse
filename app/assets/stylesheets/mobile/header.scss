@@ -2,9 +2,12 @@
 // Discourse header
 // --------------------------------------------------
 
+#site-text-logo {
+  font-size: $font-up-3;
+}
 @media only screen and (max-width: 320px) {
   #site-text-logo {
-    font-size: 18px;
+    font-size: $font-up-2;
   }
 }
 
@@ -28,19 +31,17 @@
     }
   }
 
-  .icons {
-    .badge-notification {
-      top: -5px;
-      color: $secondary;
-    }
-
-    .active .icon {
-      &:after { margin-top: -1px; }
-    }
-  }
-
   button.sign-up-button {
     display:none;
+  }
+}
+
+.d-header-icons {
+  .d-icon {
+    line-height: $line-height-medium;
+  }
+  .active .icon {
+    &:after { margin-top: -1px; }
   }
 }
 
@@ -53,5 +54,5 @@
 }
 
 .search-link .topic-statuses .topic-status i {
-  font-size: 1em;
+  font-size: $font-0;
 }

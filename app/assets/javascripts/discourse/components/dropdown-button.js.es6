@@ -1,6 +1,7 @@
-import StringBuffer from 'discourse/mixins/string-buffer';
+import { iconHTML } from 'discourse-common/lib/icon-library';
+import { bufferedRender } from 'discourse-common/lib/buffered-render';
 
-export default Ember.Component.extend(StringBuffer, {
+export default Ember.Component.extend(bufferedRender({
   classNameBindings: [':btn-group', 'hidden'],
   rerenderTriggers: ['text', 'longDescription'],
 
@@ -23,13 +24,13 @@ export default Ember.Component.extend(StringBuffer, {
     this.$().off('click.dropdown-button', 'ul li');
   }.on('willDestroyElement'),
 
-  renderString(buffer) {
+  buildBuffer(buffer) {
     const title = this.get('title');
     if (title) {
       buffer.push("<h4 class='title'>" + title + "</h4>");
     }
 
-    buffer.push(`<button class='btn standard dropdown-toggle ${this.get('buttonExtraClasses')}' data-toggle='dropdown'>${this.get('text')}</button>`);
+    buffer.push(`<button class='btn standard dropdown-toggle ${this.get('buttonExtraClasses') || ''}' data-toggle='dropdown'>${this.get('text')}</button>`);
     buffer.push("<ul class='dropdown-menu'>");
 
     const contents = this.get('dropDownContent');
@@ -40,7 +41,15 @@ export default Ember.Component.extend(StringBuffer, {
               className = (self.get('activeItem') === id ? 'disabled': '');
 
         buffer.push("<li data-id=\"" + id + "\" class=\"" + className + "\"><a href>");
-        buffer.push("<span class='icon " + row.styleClasses + "'></span>");
+
+        if (row.icon) {
+          let iconClass = 'icon';
+          if (row.iconClass) {
+            iconClass += ` ${row.iconClass}`;
+          }
+          buffer.push(iconHTML(row.icon, { tagName: 'span', class: iconClass }));
+        }
+
         buffer.push("<div><span class='title'>" + row.title + "</span>");
         buffer.push("<span>" + row.description + "</span></div>");
         buffer.push("</a></li>");
@@ -56,4 +65,4 @@ export default Ember.Component.extend(StringBuffer, {
       buffer.push("</p>");
     }
   }
-});
+}));

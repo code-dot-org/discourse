@@ -2,13 +2,36 @@
   float: none;
 }
 
+.search-advanced {
+  .search-advanced-options {
+    .control-group {
+      margin-bottom: 10px;
+      .controls {
+        input:not([type="checkbox"]),select {
+          width: 75%;
+        }
+      }
+    }
+  }
+}
+
+.search-title {
+  .sort-by {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    .select-kit {
+      flex: 1 1 auto;
+    }
+  }
+}
+
 .search.row {
-  margin-top: 5px;
+  margin-top: 10px;
 }
 
 .search.row input.search {
   height: 25px;
-  width: 69%;
 }
 
 .fps-search-context {

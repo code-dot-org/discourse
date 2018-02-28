@@ -26,7 +26,7 @@ describe SiteSetting do
 
   describe 'private_message_title_length' do
     it 'returns a range of min/max pm topic title length' do
-      expect(SiteSetting.private_message_title_length).to eq(SiteSetting.defaults[:min_private_message_title_length]..SiteSetting.defaults[:max_topic_title_length])
+      expect(SiteSetting.private_message_title_length).to eq(SiteSetting.defaults[:min_personal_message_title_length]..SiteSetting.defaults[:max_topic_title_length])
     end
   end
 
@@ -69,11 +69,47 @@ describe SiteSetting do
     end
   end
 
+  describe "min_redirected_to_top_period" do
+
+    context "has_enough_top_topics" do
+
+      before do
+        SiteSetting.topics_per_period_in_top_page = 2
+        SiteSetting.top_page_default_timeframe = 'daily'
+
+        2.times do
+          TopTopic.create!(daily_score: 2.5)
+        end
+
+        TopTopic.refresh!
+      end
+
+      it "should_return_a_time_period" do
+        expect(SiteSetting.min_redirected_to_top_period(1.days.ago)).to eq(:daily)
+      end
+
+    end
+
+    context "does_not_have_enough_top_topics" do
+
+      before do
+        SiteSetting.topics_per_period_in_top_page = 20
+        SiteSetting.top_page_default_timeframe = 'daily'
+        TopTopic.refresh!
+      end
+
+      it "should_return_a_time_period" do
+        expect(SiteSetting.min_redirected_to_top_period(1.days.ago)).to eq(nil)
+      end
+
+    end
+
+  end
+
   describe "scheme" do
     before do
       SiteSetting.force_https = true
     end
-
 
     it "returns http when ssl is disabled" do
       SiteSetting.force_https = false
@@ -87,15 +123,12 @@ describe SiteSetting do
   end
 
   context 'deprecated site settings' do
-    before do
-      SiteSetting.force_https = true
-    end
-
-    after do
-      SiteSetting.force_https = false
-    end
 
     describe '#use_https' do
+      before do
+        SiteSetting.force_https = true
+      end
+
       it 'should act as a proxy to the new methods' do
         expect(SiteSetting.use_https).to eq(true)
         expect(SiteSetting.use_https?).to eq(true)
@@ -104,6 +137,38 @@ describe SiteSetting do
 
         expect(SiteSetting.force_https).to eq(false)
         expect(SiteSetting.force_https?).to eq(false)
+      end
+    end
+
+    describe 'rename private message to personal message' do
+      before do
+        SiteSetting.min_personal_message_title_length = 15
+        SiteSetting.enable_personal_messages = true
+        SiteSetting.personal_email_time_window_seconds = 15
+        SiteSetting.max_personal_messages_per_day = 15
+        SiteSetting.default_email_personal_messages = true
+      end
+
+      it 'should act as a proxy to the new methods' do
+        expect(SiteSetting.min_private_message_title_length).to eq(15)
+        SiteSetting.min_private_message_title_length = 5
+        expect(SiteSetting.min_personal_message_title_length).to eq(5)
+
+        expect(SiteSetting.enable_private_messages).to eq(true)
+        SiteSetting.enable_private_messages = false
+        expect(SiteSetting.enable_personal_messages).to eq(false)
+
+        expect(SiteSetting.private_email_time_window_seconds).to eq(15)
+        SiteSetting.private_email_time_window_seconds = 5
+        expect(SiteSetting.personal_email_time_window_seconds).to eq(5)
+
+        expect(SiteSetting.max_private_messages_per_day).to eq(15)
+        SiteSetting.max_private_messages_per_day = 5
+        expect(SiteSetting.max_personal_messages_per_day).to eq(5)
+
+        expect(SiteSetting.default_email_private_messages).to eq(true)
+        SiteSetting.default_email_private_messages = false
+        expect(SiteSetting.default_email_personal_messages).to eq(false)
       end
     end
   end

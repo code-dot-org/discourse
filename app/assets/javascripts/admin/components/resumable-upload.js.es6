@@ -1,3 +1,6 @@
+import { iconHTML } from 'discourse-common/lib/icon-library';
+import { bufferedRender } from 'discourse-common/lib/buffered-render';
+
 /*global Resumable:true */
 
 /**
@@ -10,7 +13,7 @@
         uploadText="UPLOAD"
     }}
 **/
-const ResumableUploadComponent = Ember.Component.extend(Discourse.StringBuffer, {
+export default Ember.Component.extend(bufferedRender({
   tagName: "button",
   classNames: ["btn", "ru"],
   classNameBindings: ["isUploading"],
@@ -36,9 +39,9 @@ const ResumableUploadComponent = Ember.Component.extend(Discourse.StringBuffer, 
     }
   }.property("isUploading", "progress"),
 
-  renderString: function(buffer) {
-    var icon = this.get("isUploading") ? "times" : "upload";
-    buffer.push("<i class='fa fa-" + icon + "'></i>");
+  buildBuffer(buffer) {
+    const icon = this.get("isUploading") ? "times" : "upload";
+    buffer.push(iconHTML(icon));
     buffer.push("<span class='ru-label'>" + this.get("text") + "</span>");
     buffer.push("<span class='ru-progress' style='width:" + this.get("progress") + "%'></span>");
   },
@@ -117,6 +120,4 @@ const ResumableUploadComponent = Ember.Component.extend(Discourse.StringBuffer, 
     }
   }.on("willDestroyElement")
 
-});
-
-export default ResumableUploadComponent;
+}));

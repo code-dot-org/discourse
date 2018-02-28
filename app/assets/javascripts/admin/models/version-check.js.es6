@@ -1,42 +1,41 @@
 import { ajax } from 'discourse/lib/ajax';
+import computed from 'ember-addons/ember-computed-decorators';
+
 const VersionCheck = Discourse.Model.extend({
 
-  noCheckPerformed: function() {
-    return this.get('updated_at') === null;
-  }.property('updated_at'),
+  @computed('updated_at')
+  noCheckPerformed(updatedAt) {
+    return updatedAt === null;
+  },
 
-  dataIsOld: function() {
-    return this.get('version_check_pending') || moment().diff(moment(this.get('updated_at')), 'hours') >= 48;
-  }.property('updated_at'),
+  @computed('missing_versions_count')
+  upToDate(missingVersionsCount) {
+    return missingVersionsCount === 0 || missingVersionsCount === null;
+  },
 
-  staleData: function() {
-    return ( this.get('dataIsOld') ||
-             (this.get('installed_version') !== this.get('latest_version') && this.get('missing_versions_count') === 0) ||
-             (this.get('installed_version') === this.get('latest_version') && this.get('missing_versions_count') !== 0) );
-  }.property('dataIsOld', 'missing_versions_count', 'installed_version', 'latest_version'),
+  @computed('missing_versions_count')
+  behindByOneVersion(missingVersionsCount) {
+    return missingVersionsCount === 1;
+  },
 
-  upToDate: function() {
-    return this.get('missing_versions_count') === 0 || this.get('missing_versions_count') === null;
-  }.property('missing_versions_count'),
+  @computed('git_branch', 'installed_sha')
+  gitLink(gitBranch, installedSHA) {
+    if (gitBranch) {
+      return `https://github.com/discourse/discourse/compare/${installedSHA}...${gitBranch}`;
+    } else {
+      return `https://github.com/discourse/discourse/tree/${installedSHA}`;
+    }
+  },
 
-  behindByOneVersion: function() {
-    return this.get('missing_versions_count') === 1;
-  }.property('missing_versions_count'),
-
-  gitLink: function() {
-    return "https://github.com/discourse/discourse/tree/" + this.get('installed_sha');
-  }.property('installed_sha'),
-
-  shortSha: function() {
-    return this.get('installed_sha').substr(0,10);
-  }.property('installed_sha')
+  @computed('installed_sha')
+  shortSha(installedSHA) {
+    return installedSHA.substr(0, 10);
+  }
 });
 
 VersionCheck.reopenClass({
-  find: function() {
-    return ajax('/admin/version_check').then(function(json) {
-      return VersionCheck.create(json);
-    });
+  find() {
+    return ajax('/admin/version_check').then(json => VersionCheck.create(json));
   }
 });
 

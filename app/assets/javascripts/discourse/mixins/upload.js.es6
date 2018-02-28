@@ -8,18 +8,19 @@ export default Em.Mixin.create({
     Em.warn("You should implement `uploadDone`");
   },
 
+  validateUploadedFilesOptions() {
+    return {};
+  },
+
   _initialize: function() {
     const $upload = this.$(),
           csrf = Discourse.Session.currentProp("csrfToken"),
           uploadUrl = Discourse.getURL(this.getWithDefault("uploadUrl", "/uploads")),
           reset = () => this.setProperties({ uploading: false, uploadProgress: 0});
 
-    this.messageBus.subscribe("/uploads/" + this.get("type"), upload => {
-      if (upload && upload.url) {
-        this.uploadDone(upload);
-      } else {
-        displayErrorForUpload(upload);
-      }
+    $upload.on("fileuploaddone", (e, data) => {
+      let upload = data.result;
+      this.uploadDone(upload);
       reset();
     });
 
@@ -40,7 +41,8 @@ export default Em.Mixin.create({
     });
 
     $upload.on("fileuploadsubmit", (e, data) => {
-      const isValid = validateUploadedFiles(data.files, true);
+      const opts = _.merge({ bypassNewUserRestriction: true }, this.validateUploadedFilesOptions());
+      const isValid = validateUploadedFiles(data.files, opts);
       let form = { type: this.get("type") };
       if (this.get("data")) { form = $.extend(form, this.get("data")); }
       data.formData = form;

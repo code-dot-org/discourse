@@ -1,4 +1,3 @@
-require "sidekiq/testing"
 require 'rails_helper'
 require_dependency 'jobs/base'
 
@@ -83,16 +82,21 @@ describe Jobs do
 
       Sidekiq::Testing.disable! do
         scheduled_jobs = Sidekiq::ScheduledSet.new
-        scheduled_jobs.clear
 
         expect(scheduled_jobs.size).to eq(0)
 
-        Jobs.enqueue_in(1.year, :run_heartbeat, topic_id: 1234)
-        Jobs.enqueue_in(2.years, :run_heartbeat, topic_id: 5678)
+        Jobs.enqueue_in(1.year, :run_heartbeat, topic_id: 123)
+        Jobs.enqueue_in(2.years, :run_heartbeat, topic_id: 456)
+        Jobs.enqueue_in(3.years, :run_heartbeat, topic_id: 123, current_site_id: 'foo')
+        Jobs.enqueue_in(4.years, :run_heartbeat, topic_id: 123, current_site_id: 'bar')
 
-        expect(scheduled_jobs.size).to eq(2)
+        expect(scheduled_jobs.size).to eq(4)
 
-        Jobs.cancel_scheduled_job(:run_heartbeat, topic_id: 1234)
+        Jobs.cancel_scheduled_job(:run_heartbeat, topic_id: 123)
+
+        expect(scheduled_jobs.size).to eq(3)
+
+        Jobs.cancel_scheduled_job(:run_heartbeat, topic_id: 123, all_sites: true)
 
         expect(scheduled_jobs.size).to eq(1)
       end
@@ -102,19 +106,16 @@ describe Jobs do
 
   describe 'enqueue_at' do
     it 'calls enqueue_in for you' do
-      Timecop.freeze(Time.zone.now) do
-        Jobs.expects(:enqueue_in).with(3 * 60 * 60, :eat_lunch, {}).returns(true)
-        Jobs.enqueue_at(3.hours.from_now, :eat_lunch, {})
-      end
+      freeze_time
+      Jobs.expects(:enqueue_in).with(3 * 60 * 60, :eat_lunch, {}).returns(true)
+      Jobs.enqueue_at(3.hours.from_now, :eat_lunch, {})
     end
 
     it 'handles datetimes that are in the past' do
-      Timecop.freeze(Time.zone.now) do
-        Jobs.expects(:enqueue_in).with(0, :eat_lunch, {}).returns(true)
-        Jobs.enqueue_at(3.hours.ago, :eat_lunch, {})
-      end
+      freeze_time
+      Jobs.expects(:enqueue_in).with(0, :eat_lunch, {}).returns(true)
+      Jobs.enqueue_at(3.hours.ago, :eat_lunch, {})
     end
   end
 
 end
-

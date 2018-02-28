@@ -1,19 +1,19 @@
 class TopicRetriever
 
-  def initialize(embed_url, opts=nil)
+  def initialize(embed_url, opts = nil)
     @embed_url = embed_url
     @author_username = opts[:author_username]
     @opts = opts || {}
   end
 
   def retrieve
-    perform_retrieve unless (invalid_host? || retrieved_recently?)
+    perform_retrieve unless (invalid_url? || retrieved_recently?)
   end
 
   private
 
-    def invalid_host?
-      !EmbeddableHost.host_allowed?(@embed_url)
+    def invalid_url?
+      !EmbeddableHost.url_allowed?(@embed_url)
     end
 
     def retrieved_recently?
@@ -21,7 +21,7 @@ class TopicRetriever
       return false if @opts[:no_throttle]
 
       # Throttle other users to once every 60 seconds
-      retrieved_key = "retrieved:#{@embed_url}"
+      retrieved_key = "retrieved_topic"
       if $redis.setnx(retrieved_key, "1")
         $redis.expire(retrieved_key, 60)
         return false

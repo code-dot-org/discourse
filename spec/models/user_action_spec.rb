@@ -3,7 +3,7 @@ require 'rails_helper'
 describe UserAction do
 
   before do
-    ActiveRecord::Base.observers.enable :all
+    UserActionCreator.enable
   end
 
   it { is_expected.to validate_presence_of :action_type }
@@ -19,10 +19,11 @@ describe UserAction do
     let(:private_topic) do
       topic = private_post.topic
       topic.update_columns(category_id: nil, archetype: Archetype::private_message)
+      TopicAllowedUser.create(topic_id: topic.id, user_id: user.id)
       topic
     end
 
-    def log_test_action(opts={})
+    def log_test_action(opts = {})
       UserAction.log_action!({
         action_type: UserAction::NEW_PRIVATE_MESSAGE,
         user_id: user.id,
@@ -32,77 +33,107 @@ describe UserAction do
       }.merge(opts))
     end
 
-    before do
-      # Create some test data using a helper
-      log_test_action
-      log_test_action(action_type: UserAction::GOT_PRIVATE_MESSAGE)
-      log_test_action(action_type: UserAction::NEW_TOPIC, target_topic_id: public_topic.id, target_post_id: public_post.id)
-      log_test_action(action_type: UserAction::BOOKMARK)
+    describe "integration" do
+      before do
+        # Create some test data using a helper
+        log_test_action
+        log_test_action(action_type: UserAction::GOT_PRIVATE_MESSAGE)
+        log_test_action(action_type: UserAction::NEW_TOPIC, target_topic_id: public_topic.id, target_post_id: public_post.id)
+        log_test_action(action_type: UserAction::BOOKMARK)
+      end
+
+      def stats_for_user(viewer = nil)
+        UserAction.stats(user.id, Guardian.new(viewer)).map { |r| r["action_type"].to_i }.sort
+      end
+
+      def stream_count(viewer = nil)
+        UserAction.stream(user_id: user.id, guardian: Guardian.new(viewer)).count
+      end
+
+      it 'includes the events correctly' do
+        PostActionNotifier.enable
+
+        mystats = stats_for_user(user)
+        expecting = [UserAction::NEW_TOPIC, UserAction::NEW_PRIVATE_MESSAGE, UserAction::GOT_PRIVATE_MESSAGE, UserAction::BOOKMARK].sort
+        expect(mystats).to eq(expecting)
+        expect(stream_count(user)).to eq(4)
+
+        other_stats = stats_for_user
+        expecting = [UserAction::NEW_TOPIC]
+        expect(stream_count).to eq(1)
+
+        expect(other_stats).to eq(expecting)
+
+        public_topic.trash!(user)
+        expect(stats_for_user).to eq([])
+        expect(stream_count).to eq(0)
+
+        # groups
+        category = Fabricate(:category, read_restricted: true)
+
+        public_topic.recover!
+        public_topic.category = category
+        public_topic.save
+
+        expect(stats_for_user).to eq([])
+        expect(stream_count).to eq(0)
+
+        group = Fabricate(:group)
+        u = Fabricate(:coding_horror)
+        group.add(u)
+        group.save
+
+        category.set_permissions(group => :full)
+        category.save
+
+        expect(stats_for_user(u)).to eq([UserAction::NEW_TOPIC])
+        expect(stream_count(u)).to eq(1)
+
+        # duplicate should not exception out
+        log_test_action
+
+        # recategorize belongs to the right user
+        category2 = Fabricate(:category)
+        admin = Fabricate(:admin)
+        public_post.revise(admin, category_id: category2.id)
+
+        action = UserAction.stream(user_id: public_topic.user_id, guardian: Guardian.new)[0]
+        expect(action.acting_user_id).to eq(admin.id)
+        expect(action.action_type).to eq(UserAction::EDIT)
+      end
     end
 
-    def stats_for_user(viewer=nil)
-      UserAction.stats(user.id, Guardian.new(viewer)).map{|r| r["action_type"].to_i}.sort
-    end
+    describe "mentions" do
+      before do
+        log_test_action(action_type: UserAction::MENTION)
+      end
 
-    def stream_count(viewer=nil)
-      UserAction.stream(user_id: user.id, guardian: Guardian.new(viewer)).count
-    end
+      let(:stream) do
+        UserAction.stream(
+          user_id: user.id,
+          guardian: Guardian.new(user)
+        )
+      end
 
-    it 'includes the events correctly' do
-      mystats = stats_for_user(user)
-      expecting = [UserAction::NEW_TOPIC, UserAction::NEW_PRIVATE_MESSAGE, UserAction::GOT_PRIVATE_MESSAGE, UserAction::BOOKMARK].sort
-      expect(mystats).to eq(expecting)
-      expect(stream_count(user)).to eq(4)
+      it "is returned by the stream" do
+        expect(stream).to be_present
+      end
 
-      other_stats = stats_for_user
-      expecting = [UserAction::NEW_TOPIC]
-      expect(stream_count).to eq(1)
-
-      expect(other_stats).to eq(expecting)
-
-      public_topic.trash!(user)
-      expect(stats_for_user).to eq([])
-      expect(stream_count).to eq(0)
-
-      # groups
-      category = Fabricate(:category, read_restricted: true)
-
-      public_topic.recover!
-      public_topic.category = category
-      public_topic.save
-
-      expect(stats_for_user).to eq([])
-      expect(stream_count).to eq(0)
-
-      group = Fabricate(:group)
-      u = Fabricate(:coding_horror)
-      group.add(u)
-      group.save
-
-      category.set_permissions(group => :full)
-      category.save
-
-      expect(stats_for_user(u)).to eq([UserAction::NEW_TOPIC])
-      expect(stream_count(u)).to eq(1)
-
-      # duplicate should not exception out
-      log_test_action
-
-      # recategorize belongs to the right user
-      category2 = Fabricate(:category)
-      admin = Fabricate(:admin)
-      public_post.revise(admin, { category_id: category2.id})
-
-      action = UserAction.stream(user_id: public_topic.user_id, guardian: Guardian.new)[0]
-      expect(action.acting_user_id).to eq(admin.id)
-      expect(action.action_type).to eq(UserAction::EDIT)
+      it "isn't returned when mentions aren't enabled" do
+        SiteSetting.enable_mentions = false
+        expect(stream).to be_blank
+      end
     end
 
   end
 
+  describe "mentions" do
+    it "returns the mention in the stream" do
+    end
+  end
   describe 'when user likes' do
 
-    let!(:post) { Fabricate(:post) }
+    let(:post) { Fabricate(:post) }
     let(:likee) { post.user }
     let(:liker) { Fabricate(:coding_horror) }
 
@@ -135,6 +166,23 @@ describe UserAction do
         PostAction.remove_act(liker, post, PostActionType.types[:like])
         expect(likee.user_stat.reload.likes_received).to eq(0)
         expect(liker.user_stat.reload.likes_given).to eq(0)
+      end
+
+      context 'private message' do
+        let(:post) { Fabricate(:private_message_post) }
+        let(:likee) { post.topic.topic_allowed_users.first.user }
+        let(:liker) { post.topic.topic_allowed_users.last.user }
+
+        it 'should not increase user stats' do
+          expect(@liker_action).not_to eq(nil)
+          expect(liker.user_stat.reload.likes_given).to eq(0)
+          expect(@likee_action).not_to eq(nil)
+          expect(likee.user_stat.reload.likes_received).to eq(0)
+
+          PostAction.remove_act(liker, post, PostActionType.types[:like])
+          expect(liker.user_stat.reload.likes_given).to eq(0)
+          expect(likee.user_stat.reload.likes_received).to eq(0)
+        end
       end
 
     end
@@ -177,7 +225,6 @@ describe UserAction do
     it 'should not log a post user action' do
       expect(@post.user.user_actions.find_by(action_type: UserAction::REPLY)).to eq(nil)
     end
-
 
     describe 'when another user posts on the topic' do
       before do
@@ -223,36 +270,49 @@ describe UserAction do
     end
   end
 
-  describe 'private messages' do
+  describe 'secures private messages' do
 
     let(:user) do
       Fabricate(:user)
     end
 
-    let(:target_user) do
+    let(:user2) do
       Fabricate(:user)
     end
 
     let(:private_message) do
-      PostCreator.create( user,
+      PostCreator.create(user,
                           raw: 'this is a private message',
                           title: 'this is the pm title',
-                          target_usernames: target_user.username,
+                          target_usernames: user2.username,
                           archetype: Archetype::private_message
                         )
     end
 
-    let!(:response) do
-      PostCreator.create(user, raw: 'oops I forgot to mention this', topic_id: private_message.topic_id)
+    def count_bookmarks
+      UserAction.stream(
+        user_id: user.id,
+        action_types: [UserAction::BOOKMARK],
+        ignore_private_messages: false,
+        guardian: Guardian.new(user)
+      ).count
     end
 
-    let!(:private_message2) do
-      PostCreator.create( target_user,
-                          raw: 'this is a private message',
-                          title: 'this is the pm title',
-                          target_usernames: user.username,
-                          archetype: Archetype::private_message
-                        )
+    it 'correctly secures stream' do
+      PostAction.act(user, private_message, PostActionType.types[:bookmark])
+
+      expect(count_bookmarks).to eq(1)
+
+      private_message.topic.topic_allowed_users.where(user_id: user.id).destroy_all
+
+      expect(count_bookmarks).to eq(0)
+
+      group = Fabricate(:group)
+      group.add(user)
+      private_message.topic.topic_allowed_groups.create(group_id: group.id)
+
+      expect(count_bookmarks).to eq(1)
+
     end
 
   end

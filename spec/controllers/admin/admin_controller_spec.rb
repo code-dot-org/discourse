@@ -5,16 +5,16 @@ describe Admin::AdminController do
   context 'index' do
 
     it 'needs you to be logged in' do
-      expect { xhr :get, :index }.to raise_error(Discourse::NotLoggedIn)
+      get :index, format: :json
+      expect(response.status).to eq(403)
     end
 
     it "raises an error if you aren't an admin" do
-      user = log_in
-      xhr :get, :index
+      _user = log_in
+      get :index, format: :json
       expect(response).to be_forbidden
     end
 
   end
-
 
 end

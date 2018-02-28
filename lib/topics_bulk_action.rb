@@ -1,6 +1,6 @@
 class TopicsBulkAction
 
-  def initialize(user, topic_ids, operation, options={})
+  def initialize(user, topic_ids, operation, options = {})
     @user = user
     @topic_ids = topic_ids
     @operation = operation
@@ -11,7 +11,7 @@ class TopicsBulkAction
   def self.operations
     @operations ||= %w(change_category close archive change_notification_level
                        reset_read dismiss_posts delete unlist archive_messages
-                       move_messages_to_inbox change_tags)
+                       move_messages_to_inbox change_tags append_tags relist)
   end
 
   def self.register_operation(name, &block)
@@ -45,7 +45,7 @@ class TopicsBulkAction
           if group
             GroupArchivedMessage.move_to_inbox!(group.id, t.id)
           else
-            UserArchivedMessage.move_to_inbox!(@user.id,t.id)
+            UserArchivedMessage.move_to_inbox!(@user.id, t.id)
           end
         end
       end
@@ -115,6 +115,15 @@ class TopicsBulkAction
       end
     end
 
+    def relist
+      topics.each do |t|
+        if guardian.can_moderate?(t)
+          t.update_status('visible', true, @user)
+          @changed_ids << t.id
+        end
+      end
+    end
+
     def archive
       topics.each do |t|
         if guardian.can_moderate?(t)
@@ -126,7 +135,9 @@ class TopicsBulkAction
 
     def delete
       topics.each do |t|
-        t.trash! if guardian.can_delete?(t)
+        if guardian.can_delete?(t)
+          PostDestroyer.new(@user, t.ordered_posts.first).destroy
+        end
       end
     end
 
@@ -146,6 +157,20 @@ class TopicsBulkAction
       end
     end
 
+    def append_tags
+      tags = @operation[:tags]
+      tags = DiscourseTagging.tags_for_saving(tags, guardian) if tags.present?
+
+      topics.each do |t|
+        if guardian.can_edit?(t)
+          if tags.present?
+            DiscourseTagging.tag_topic_by_names(t, guardian, tags, append: true)
+          end
+        @changed_ids << t.id
+        end
+      end
+    end
+
     def guardian
       @guardian ||= Guardian.new(@user)
     end
@@ -154,6 +179,4 @@ class TopicsBulkAction
       @topics ||= Topic.where(id: @topic_ids)
     end
 
-
 end
-

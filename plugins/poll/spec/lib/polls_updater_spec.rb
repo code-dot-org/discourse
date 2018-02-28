@@ -1,6 +1,8 @@
 require 'rails_helper'
 
 describe DiscoursePoll::PollsUpdater do
+  let(:user) { Fabricate(:user) }
+
   let(:post_with_two_polls) do
     raw = <<-RAW.strip_heredoc
     [poll]
@@ -127,15 +129,13 @@ describe DiscoursePoll::PollsUpdater do
         DiscoursePoll::PollsValidator.new(Fabricate(:post, raw: raw)).validate_polls
       end
 
-      let(:user) { Fabricate(:user) }
-
       before do
-        DiscoursePoll::Poll.vote(post.id, "poll", ["5c24fc1df56d764b550ceae1b9319125"], user.id)
+        DiscoursePoll::Poll.vote(post.id, "poll", ["5c24fc1df56d764b550ceae1b9319125"], user)
         post.reload
       end
 
       it "should not allow a private poll with votes to be made public" do
-        DiscoursePoll::Poll.vote(private_poll_post.id, "poll", ["5c24fc1df56d764b550ceae1b9319125"], user.id)
+        DiscoursePoll::Poll.vote(private_poll_post.id, "poll", ["5c24fc1df56d764b550ceae1b9319125"], user)
         private_poll_post.reload
 
         messages = MessageBus.track_publish do
@@ -217,12 +217,55 @@ describe DiscoursePoll::PollsUpdater do
       end
     end
 
-    describe "when post has been created more than 5 minutes ago" do
-      let(:another_post) { Fabricate(:post, created_at: Time.zone.now - 5.minutes) }
+    it 'should be able to edit multiple polls with votes' do
+      DiscoursePoll::Poll.vote(
+        post_with_two_polls.id,
+        "poll",
+        [two_polls["poll"]["options"].first["id"]],
+        user
+      )
+
+      raw = <<-RAW.strip_heredoc
+      [poll]
+      * 12
+      * 34
+      [/poll]
+
+      [poll name=test]
+      * 12
+      * 34
+      [/poll]
+      RAW
+
+      different_post = Fabricate(:post, raw: raw)
+      different_polls = DiscoursePoll::PollsValidator.new(different_post).validate_polls
+
+      message = MessageBus.track_publish do
+        described_class.update(post_with_two_polls.reload, different_polls)
+      end.first
+
+      expect(post_with_two_polls.reload.custom_fields[DiscoursePoll::POLLS_CUSTOM_FIELD])
+        .to eq(different_polls)
+
+      expect(message.data[:post_id]).to eq(post_with_two_polls.id)
+      expect(message.data[:polls]).to eq(different_polls)
+    end
+
+    describe "when poll edit window has expired" do
+      let(:poll_edit_window_mins) { 6 }
+      let(:another_post) { Fabricate(:post, created_at: Time.zone.now - poll_edit_window_mins.minutes) }
 
       before do
-        polls.each { |key, value| value["voters"] = 2 }
         described_class.update(another_post, polls)
+        another_post.reload
+        SiteSetting.poll_edit_window_mins = poll_edit_window_mins
+
+        DiscoursePoll::Poll.vote(
+          another_post.id,
+          "poll",
+          [polls["poll"]["options"].first["id"]],
+          user
+        )
       end
 
       it "should not allow new polls to be added" do
@@ -231,8 +274,9 @@ describe DiscoursePoll::PollsUpdater do
         end
 
         expect(another_post.errors[:base]).to include(I18n.t(
-          "poll.cannot_change_polls_after_5_minutes")
-        )
+          "poll.edit_window_expired.cannot_change_polls",
+          minutes: poll_edit_window_mins
+        ))
 
         expect(messages).to eq([])
       end
@@ -243,13 +287,16 @@ describe DiscoursePoll::PollsUpdater do
         end
 
         expect(another_post.errors[:base]).to include(I18n.t(
-          "poll.op_cannot_edit_options_after_5_minutes"
+          "poll.edit_window_expired.op_cannot_edit_options",
+          minutes: poll_edit_window_mins
         ))
 
         expect(messages).to eq([])
       end
 
       context "staff" do
+        let(:another_user) { Fabricate(:user) }
+
         it "should not allow staff to add options if votes have been casted" do
           another_post.update_attributes!(last_editor_id: User.staff.first.id)
 
@@ -258,7 +305,8 @@ describe DiscoursePoll::PollsUpdater do
           end
 
           expect(another_post.errors[:base]).to include(I18n.t(
-            "poll.staff_cannot_add_or_remove_options_after_5_minutes"
+            "poll.edit_window_expired.staff_cannot_add_or_remove_options",
+            minutes: poll_edit_window_mins
           ))
 
           expect(messages).to eq([])
@@ -279,8 +327,15 @@ describe DiscoursePoll::PollsUpdater do
           expect(message.data[:polls]).to eq(polls_with_3_options)
         end
 
-        it "should allow staff to edit options if votes have been casted" do
-          another_post.update_attributes!(last_editor_id: User.staff.first.id)
+        it "should allow staff to edit options even if votes have been casted" do
+          another_post.update!(last_editor_id: User.staff.first.id)
+
+          DiscoursePoll::Poll.vote(
+            another_post.id,
+            "poll",
+            [polls["poll"]["options"].first["id"]],
+            another_user
+          )
 
           raw = <<-RAW.strip_heredoc
           [poll]
@@ -296,9 +351,16 @@ describe DiscoursePoll::PollsUpdater do
             described_class.update(another_post, different_polls)
           end.first
 
-          different_polls.each { |key, value| value["voters"] = 2 }
+          custom_fields = another_post.reload.custom_fields
 
-          expect(another_post.reload.custom_fields[DiscoursePoll::POLLS_CUSTOM_FIELD]).to eq(different_polls)
+          expect(custom_fields[DiscoursePoll::POLLS_CUSTOM_FIELD])
+            .to eq(different_polls)
+
+          [user, another_user].each do |u|
+            expect(custom_fields[DiscoursePoll::VOTES_CUSTOM_FIELD][u.id.to_s]["poll"])
+              .to eq(["68b434ff88aeae7054e42cd05a4d9056"])
+          end
+
           expect(message.data[:post_id]).to eq(another_post.id)
           expect(message.data[:polls]).to eq(different_polls)
         end

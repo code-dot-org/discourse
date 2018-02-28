@@ -12,6 +12,8 @@ class UserAuthenticator
     else
       @user.password_required!
     end
+
+    @user.skip_email_validation = true if @session && @session[:skip_email_validation].present?
   end
 
   def has_authenticator?
@@ -23,11 +25,15 @@ class UserAuthenticator
     @session = nil
   end
 
-  private
+  def email_valid?
+    @session && @session[:email_valid]
+  end
 
   def authenticated?
     @session && @session[:email] == @user.email && @session[:email_valid]
   end
+
+  private
 
   def authenticator
     if authenticator_name

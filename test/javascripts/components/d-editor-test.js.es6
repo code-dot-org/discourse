@@ -21,7 +21,7 @@ componentTest('preview sanitizes HTML', {
   template: '{{d-editor value=value}}',
 
   test(assert) {
-    this.set('value', `"><svg onload="prompt(/xss/)"></svg>`);
+    fillIn('.d-editor-input', `"><svg onload="prompt(/xss/)"></svg>`);
     andThen(() => {
       assert.equal(this.$('.d-editor-preview').html().trim(), '<p>\"&gt;</p>');
     });
@@ -31,7 +31,7 @@ componentTest('preview sanitizes HTML', {
 componentTest('updating the value refreshes the preview', {
   template: '{{d-editor value=value}}',
 
-  setup() {
+  beforeEach() {
     this.set('value', 'evil trout');
   },
 
@@ -52,7 +52,20 @@ function jumpEnd(textarea) {
 function testCase(title, testFunc) {
   componentTest(title, {
     template: '{{d-editor value=value}}',
-    setup() {
+    beforeEach() {
+      this.set('value', 'hello world.');
+    },
+    test(assert) {
+      const textarea = jumpEnd(this.$('textarea.d-editor-input')[0]);
+      testFunc.call(this, assert, textarea);
+    }
+  });
+}
+
+function composerTestCase(title, testFunc) {
+  componentTest(title, {
+    template: '{{d-editor value=value composerEvents=true}}',
+    beforeEach() {
       this.set('value', 'hello world.');
     },
     test(assert) {
@@ -235,6 +248,9 @@ testCase('link modal (simple link) with selected text', function(assert, textare
   textarea.selectionEnd = 12;
 
   click('button.link');
+  andThen(() => {
+    assert.equal(this.$('input.link-text')[0].value, 'hello world.');
+  });
   fillIn('.insert-link input.link-url', 'http://eviltrout.com');
   click('.insert-link button.btn-primary');
   andThen(() => {
@@ -256,14 +272,16 @@ testCase('link modal (link with description)', function(assert) {
 
 componentTest('advanced code', {
   template: '{{d-editor value=value}}',
-  setup() {
+  beforeEach() {
     this.siteSettings.code_formatting_style = '4-spaces-indent';
     this.set('value',
-`function xyz(x, y, z) {
+`
+function xyz(x, y, z) {
   if (y === z) {
     return true;
   }
-}`);
+}
+`   );
   },
 
   test(assert) {
@@ -274,11 +292,14 @@ componentTest('advanced code', {
     click('button.code');
     andThen(() => {
       assert.equal(this.get('value'),
-`    function xyz(x, y, z) {
+`
+    function xyz(x, y, z) {
       if (y === z) {
         return true;
       }
-    }`);
+    }
+`
+      );
     });
   }
 
@@ -286,9 +307,8 @@ componentTest('advanced code', {
 
 componentTest('code button', {
   template: '{{d-editor value=value}}',
-  setup() {
+  beforeEach() {
     this.siteSettings.code_formatting_style = '4-spaces-indent';
-    this.set('value', "first line\n\nsecond line\n\nthird line");
   },
 
   test(assert) {
@@ -296,7 +316,56 @@ componentTest('code button', {
 
     click('button.code');
     andThen(() => {
-      assert.equal(this.get('value'), "first line\n\nsecond line\n\nthird line`" + I18n.t('composer.code_text') + "`");
+      assert.equal(this.get('value'),
+`    ${I18n.t('composer.code_text')}`
+      );
+
+      this.set('value', "first line\n\nsecond line\n\nthird line");
+
+      textarea.selectionStart = 11;
+      textarea.selectionEnd = 11;
+    });
+
+    click('button.code');
+    andThen(() => {
+      assert.equal(this.get('value'),
+`first line
+    ${I18n.t('composer.code_text')}
+second line
+
+third line`
+      );
+
+      this.set('value', "first line\n\nsecond line\n\nthird line");
+    });
+
+
+    click('button.code');
+    andThen(() => {
+      assert.equal(this.get('value'),
+`first line
+
+second line
+
+third line\`${I18n.t('composer.code_title')}\``
+      );
+      this.set('value', "first line\n\nsecond line\n\nthird line");
+    });
+
+    andThen(() => {
+      textarea.selectionStart = 5;
+      textarea.selectionEnd = 5;
+    });
+
+    click('button.code');
+    andThen(() => {
+      assert.equal(this.get('value'),
+`first\`${I18n.t('composer.code_title')}\` line
+
+second line
+
+third line`
+      );
       this.set('value', "first line\n\nsecond line\n\nthird line");
     });
 
@@ -338,30 +407,194 @@ componentTest('code button', {
   }
 });
 
+componentTest('code fences', {
+  template: '{{d-editor value=value}}',
+  beforeEach() {
+    this.set('value', '');
+  },
+
+  test(assert) {
+    const textarea = jumpEnd(this.$('textarea.d-editor-input')[0]);
+
+    click('button.code');
+    andThen(() => {
+      assert.equal(this.get('value'),
+`\`\`\`
+${I18n.t("composer.paste_code_text")}
+\`\`\``
+      );
+
+      assert.equal(textarea.selectionStart, 4);
+      assert.equal(textarea.selectionEnd, 27);
+
+      this.set('value', 'first line\nsecond line\nthird line');
+
+      textarea.selectionStart = 0;
+      textarea.selectionEnd = textarea.value.length;
+    });
+
+    click('button.code');
+    andThen(() => {
+      assert.equal(this.get('value'),
+`\`\`\`
+first line
+second line
+third line
+\`\`\`
+`
+      );
+
+      assert.equal(textarea.selectionStart, textarea.value.length);
+      assert.equal(textarea.selectionEnd, textarea.value.length);
+
+      this.set('value', 'first line\nsecond line\nthird line');
+
+      textarea.selectionStart = 0;
+      textarea.selectionEnd = 0;
+    });
+
+    click('button.code');
+    andThen(() => {
+      assert.equal(this.get('value'),
+`\`${I18n.t('composer.code_title')}\`first line
+second line
+third line`
+      );
+
+      assert.equal(textarea.selectionStart, 1);
+      assert.equal(textarea.selectionEnd, I18n.t('composer.code_title').length + 1);
+
+      this.set('value', 'first line\nsecond line\nthird line');
+
+      textarea.selectionStart = 0;
+      textarea.selectionEnd = 10;
+    });
+
+    click('button.code');
+    andThen(() => {
+      assert.equal(this.get('value'),
+`\`first line\`
+second line
+third line`
+      );
+
+      assert.equal(textarea.selectionStart, 1);
+      assert.equal(textarea.selectionEnd, 11);
+
+      this.set('value', 'first line\nsecond line\nthird line');
+
+      textarea.selectionStart = 0;
+      textarea.selectionEnd = 23;
+    });
+
+    click('button.code');
+    andThen(() => {
+      assert.equal(this.get('value'),
+`\`\`\`
+first line
+second line
+\`\`\`
+third line`
+      );
+
+      assert.equal(textarea.selectionStart, 30);
+      assert.equal(textarea.selectionEnd, 30);
+
+      this.set('value', 'first line\nsecond line\nthird line');
+
+      textarea.selectionStart = 6;
+      textarea.selectionEnd = 17;
+    });
+
+    click('button.code');
+    andThen(() => {
+      assert.equal(this.get('value'), `first \n\`\`\`\nline\nsecond\n\`\`\`\n line\nthird line`);
+
+      assert.equal(textarea.selectionStart, 27);
+      assert.equal(textarea.selectionEnd, 27);
+    });
+  }
+});
+
+
+componentTest("quote button - empty lines", {
+  template: '{{d-editor value=value composerEvents=true}}',
+  beforeEach() {
+    this.set('value', "one\n\ntwo\n\nthree");
+  },
+  test(assert) {
+    const textarea = jumpEnd(this.$('textarea.d-editor-input')[0]);
+
+    andThen(() => {
+      textarea.selectionStart = 0;
+    });
+
+    click('button.quote');
+    andThen(() => {
+      assert.equal(this.get('value'), "> one\n> \n> two\n> \n> three");
+      assert.equal(textarea.selectionStart, 0);
+      assert.equal(textarea.selectionEnd, 25);
+    });
+
+    click('button.quote');
+    andThen(() => {
+      assert.equal(this.get('value'), "one\n\ntwo\n\nthree");
+    });
+  }
+});
+
+componentTest("quote button - selecting empty lines", {
+  template: '{{d-editor value=value composerEvents=true}}',
+  beforeEach() {
+    this.set('value', "one\n\n\n\ntwo");
+  },
+  test(assert) {
+    const textarea = jumpEnd(this.$('textarea.d-editor-input')[0]);
+
+    andThen(() => {
+      textarea.selectionStart = 6;
+      textarea.selectionEnd = 10;
+    });
+
+    click('button.quote');
+    andThen(() => {
+      assert.equal(this.get('value'), "one\n\n\n> \n> two");
+    });
+  }
+});
+
 testCase('quote button', function(assert, textarea) {
-  click('button.quote');
-  andThen(() => {
-    assert.equal(this.get('value'), 'hello world.');
-  });
 
   andThen(() => {
     textarea.selectionStart = 6;
-    textarea.selectionEnd = 11;
+    textarea.selectionEnd = 9;
   });
 
   click('button.quote');
   andThen(() => {
-    assert.equal(this.get('value'), 'hello > world.');
-    assert.equal(textarea.selectionStart, 6);
-    assert.equal(textarea.selectionEnd, 13);
+    assert.equal(this.get('value'), 'hello\n\n> wor\n\nld.');
+    assert.equal(textarea.selectionStart, 7);
+    assert.equal(textarea.selectionEnd, 12);
+  });
+
+  click('button.quote');
+
+  andThen(() => {
+    assert.equal(this.get('value'), 'hello\n\nwor\n\nld.');
+    assert.equal(textarea.selectionStart, 7);
+    assert.equal(textarea.selectionEnd, 10);
+  });
+
+  andThen(() => {
+    textarea.selectionStart = 15;
+    textarea.selectionEnd = 15;
   });
 
   click('button.quote');
   andThen(() => {
-    assert.equal(this.get('value'), 'hello world.');
-    assert.equal(textarea.selectionStart, 6);
-    assert.equal(textarea.selectionEnd, 11);
+    assert.equal(this.get('value'), 'hello\n\nwor\n\nld.\n\n> Blockquote');
   });
+
 });
 
 testCase(`bullet button with no selection`, function(assert, textarea) {
@@ -482,64 +715,24 @@ testCase(`list button with line sequence`, function(assert, textarea) {
   });
 });
 
-testCase(`heading button with no selection`, function(assert, textarea) {
-  const example = I18n.t('composer.heading_text');
+componentTest('clicking the toggle-direction button toggles the direction', {
+  template: '{{d-editor value=value}}',
+  beforeEach() {
+    this.siteSettings.support_mixed_text_direction = true;
+    this.siteSettings.default_locale = "en";
+  },
 
-  click(`button.heading`);
-  andThen(() => {
-    assert.equal(this.get('value'), `hello world.\n\n## ${example}`);
-    assert.equal(textarea.selectionStart, 14);
-    assert.equal(textarea.selectionEnd, 17 + example.length);
-  });
-
-  textarea.selectionStart = 30;
-  textarea.selectionEnd = 30;
-  click(`button.heading`);
-  andThen(() => {
-    assert.equal(this.get('value'), `hello world.\n\n${example}`);
-    assert.equal(textarea.selectionStart, 14);
-    assert.equal(textarea.selectionEnd, 14 + example.length);
-  });
-});
-
-testCase(`rule between things`, function(assert, textarea) {
-  textarea.selectionStart = 5;
-  textarea.selectionEnd = 5;
-
-  click(`button.rule`);
-  andThen(() => {
-    assert.equal(this.get('value'), `hello\n\n----------\n world.`);
-    assert.equal(textarea.selectionStart, 18);
-    assert.equal(textarea.selectionEnd, 18);
-  });
-});
-
-testCase(`rule with no selection`, function(assert, textarea) {
-  click(`button.rule`);
-  andThen(() => {
-    assert.equal(this.get('value'), `hello world.\n\n----------\n`);
-    assert.equal(textarea.selectionStart, 25);
-    assert.equal(textarea.selectionEnd, 25);
-  });
-
-  click(`button.rule`);
-  andThen(() => {
-    assert.equal(this.get('value'), `hello world.\n\n----------\n\n\n----------\n`);
-    assert.equal(textarea.selectionStart, 38);
-    assert.equal(textarea.selectionEnd, 38);
-  });
-});
-
-testCase(`rule with a selection`, function(assert, textarea) {
-  textarea.selectionStart = 6;
-  textarea.selectionEnd = 11;
-
-  click(`button.rule`);
-  andThen(() => {
-    assert.equal(this.get('value'), `hello \n\n----------\n.`);
-    assert.equal(textarea.selectionStart, 19);
-    assert.equal(textarea.selectionEnd, 19);
-  });
+  test(assert) {
+    const textarea = this.$('textarea.d-editor-input');
+    click('button.toggle-direction');
+    andThen(() => {
+      assert.equal(textarea.attr('dir'), 'rtl');
+    });
+    click('button.toggle-direction');
+    andThen(() => {
+      assert.equal(textarea.attr('dir'), 'ltr');
+    });
+  }
 });
 
 testCase(`doesn't jump to bottom with long text`, function(assert, textarea) {
@@ -564,7 +757,7 @@ testCase(`doesn't jump to bottom with long text`, function(assert, textarea) {
 
 componentTest('emoji', {
   template: '{{d-editor value=value}}',
-  setup() {
+  beforeEach() {
     // Test adding a custom button
     withPluginApi('0.1', api => {
       api.onToolbarCreate(toolbar => {
@@ -579,26 +772,29 @@ componentTest('emoji', {
     this.set('value', 'hello world.');
   },
   test(assert) {
-    assert.equal($('.emoji-modal').length, 0);
-
     jumpEnd(this.$('textarea.d-editor-input')[0]);
     click('button.emoji');
-    andThen(() => {
-      assert.equal($('.emoji-modal').length, 1);
-    });
 
-    click('a[data-group-id=0]');
-    click('a[title=grinning]');
-
+    click('.emoji-picker .section[data-section="people"] button.emoji[title="grinning"]');
     andThen(() => {
-      assert.ok($('.emoji-modal').length === 0);
       assert.equal(this.get('value'), 'hello world.:grinning:');
     });
   }
 });
 
-testCase("replace-text event", function(assert, textarea) {
+testCase("replace-text event by default", function(assert) {
+  this.set('value', "red green blue");
 
+  andThen(() => {
+    this.container.lookup('app-events:main').trigger('composer:replace-text', 'green', 'yellow');
+  });
+
+  andThen(() => {
+    assert.equal(this.get('value'), 'red green blue');
+  });
+});
+
+composerTestCase("replace-text event for composer", function(assert) {
   this.set('value', "red green blue");
 
   andThen(() => {
@@ -607,7 +803,97 @@ testCase("replace-text event", function(assert, textarea) {
 
   andThen(() => {
     assert.equal(this.get('value'), 'red yellow blue');
-    assert.equal(textarea.selectionStart, 10);
-    assert.equal(textarea.selectionEnd, 10);
   });
 });
+
+
+(() => {
+  // Tests to check cursor/selection after replace-text event.
+  const BEFORE = 'red green blue';
+  const NEEDLE = 'green';
+  const REPLACE = 'yellow';
+  const AFTER = BEFORE.replace(NEEDLE, REPLACE);
+
+  const CASES = [
+    {
+      description: 'cursor at start remains there',
+      before: [0, 0],
+      after: [0, 0]
+    },{
+      description: 'cursor before needle becomes cursor before replacement',
+      before: [BEFORE.indexOf(NEEDLE), 0],
+      after: [AFTER.indexOf(REPLACE), 0]
+    },{
+      description: 'cursor at needle start + 1 moves behind replacement',
+      before: [BEFORE.indexOf(NEEDLE) + 1, 0],
+      after: [AFTER.indexOf(REPLACE) + REPLACE.length, 0]
+    },{
+      description: 'cursor at needle end - 1 stays behind replacement',
+      before: [BEFORE.indexOf(NEEDLE) + NEEDLE.length - 1, 0],
+      after: [AFTER.indexOf(REPLACE) + REPLACE.length, 0]
+    },{
+      description: 'cursor behind needle becomes cursor behind replacement',
+      before: [BEFORE.indexOf(NEEDLE) + NEEDLE.length, 0],
+      after: [AFTER.indexOf(REPLACE) + REPLACE.length, 0]
+    },{
+      description: 'cursor at end remains there',
+      before: [BEFORE.length, 0],
+      after: [AFTER.length, 0]
+    },{
+      description: 'selection spanning needle start becomes selection until replacement start',
+      before: [BEFORE.indexOf(NEEDLE) - 1, 2],
+      after: [AFTER.indexOf(REPLACE) - 1, 1]
+    },{
+      description: 'selection spanning needle end becomes selection from replacement end',
+      before: [BEFORE.indexOf(NEEDLE) + NEEDLE.length - 1, 2],
+      after: [AFTER.indexOf(REPLACE) + REPLACE.length, 1]
+    },{
+      description: 'selection spanning needle becomes selection spanning replacement',
+      before: [BEFORE.indexOf(NEEDLE) - 1, NEEDLE.length + 2],
+      after: [AFTER.indexOf(REPLACE) - 1, REPLACE.length + 2]
+    },{
+      description: 'complete selection remains complete',
+      before: [0, BEFORE.length],
+      after: [0, AFTER.length]
+    }
+  ];
+
+  function setSelection(textarea, [start, len]) {
+    textarea.selectionStart = start;
+    textarea.selectionEnd = start + len;
+  }
+
+  function getSelection(textarea) {
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    return [start, end - start];
+  }
+
+  function formatTextWithSelection(text, [start, len]) {
+    return [
+      '"',
+      text.substr(0, start),
+      '<',
+      text.substr(start, len),
+      '>',
+      text.substr(start+len),
+      '"',
+    ].join('');
+  }
+
+  for (let i = 0; i < CASES.length; i++) {
+    const CASE = CASES[i];
+    composerTestCase(`replace-text event: ${CASE.description}`, function(assert, textarea) {
+      this.set('value', BEFORE);
+      setSelection(textarea, CASE.before);
+      andThen(() => {
+        this.container.lookup('app-events:main').trigger('composer:replace-text', 'green', 'yellow');
+      });
+      andThen(() => {
+        let expect = formatTextWithSelection(AFTER, CASE.after);
+        let actual = formatTextWithSelection(this.get('value'), getSelection(textarea));
+        assert.equal(actual, expect);
+      });
+    });
+  }
+})();

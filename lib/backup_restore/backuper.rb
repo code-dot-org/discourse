@@ -1,11 +1,9 @@
 module BackupRestore
 
   class Backuper
-    include BackupRestore::Utils
-
     attr_reader :success
 
-    def initialize(user_id, opts={})
+    def initialize(user_id, opts = {})
       @user_id = user_id
       @client_id = opts[:client_id]
       @publish_to_message_bus = opts[:publish_to_message_bus] || false
@@ -28,8 +26,6 @@ module BackupRestore
       ensure_directory_exists(@tmp_directory)
       ensure_directory_exists(@archive_directory)
 
-      write_metadata
-
       ### READ-ONLY / START ###
       enable_readonly_mode
 
@@ -43,7 +39,7 @@ module BackupRestore
 
       log "Finalizing backup..."
 
-      create_archive
+      @with_uploads ? create_archive : move_dump_backup
 
       after_create_hook
     rescue SystemExit
@@ -54,16 +50,16 @@ module BackupRestore
       @success = false
     else
       @success = true
-      "#{@archive_basename}.tar.gz"
+      File.join(@archive_directory, @backup_filename)
     ensure
       begin
         notify_user
         remove_old
+        clean_up
       rescue => ex
         Rails.logger.error("#{ex}\n" + ex.backtrace.join("\n"))
       end
 
-      clean_up
       @success ? log("[SUCCESS]") : log("[FAILED]")
     end
 
@@ -83,10 +79,17 @@ module BackupRestore
       @current_db = RailsMultisite::ConnectionManagement.current_db
       @timestamp = Time.now.strftime("%Y-%m-%d-%H%M%S")
       @tmp_directory = File.join(Rails.root, "tmp", "backups", @current_db, @timestamp)
-      @dump_filename = "#{File.join(@tmp_directory, BackupRestore::DUMP_FILE)}.gz"
-      @meta_filename = File.join(@tmp_directory, BackupRestore::METADATA_FILE)
+      @dump_filename = File.join(@tmp_directory, BackupRestore::DUMP_FILE)
       @archive_directory = File.join(Rails.root, "public", "backups", @current_db)
-      @archive_basename = File.join(@archive_directory, "#{SiteSetting.title.parameterize}-#{@timestamp}")
+      @archive_basename = File.join(@archive_directory, "#{SiteSetting.title.parameterize}-#{@timestamp}-#{BackupRestore::VERSION_PREFIX}#{BackupRestore.current_version}")
+
+      @backup_filename =
+        if @with_uploads
+          "#{File.basename(@archive_basename)}.tar.gz"
+        else
+          "#{File.basename(@archive_basename)}.sql.gz"
+        end
+
       @logs = []
       @readonly_mode_was_enabled = Discourse.readonly_mode? || !SiteSetting.readonly_mode_during_backup
     end
@@ -135,15 +138,6 @@ module BackupRestore
       end
 
       false
-    end
-
-    def write_metadata
-      log "Writing metadata to '#{@meta_filename}'..."
-      metadata = {
-        source: "discourse",
-        version: BackupRestore.current_version
-      }
-      File.write(@meta_filename, metadata.to_json)
     end
 
     def dump_public_schema
@@ -199,55 +193,60 @@ module BackupRestore
       ].join(" ")
     end
 
+    def move_dump_backup
+      log "Finalizing database dump file: #{@backup_filename}"
+
+      Discourse::Utils.execute_command(
+        'mv', @dump_filename, File.join(@archive_directory, @backup_filename),
+        failure_message: "Failed to move database dump file."
+      )
+
+      remove_tmp_directory
+    end
+
     def create_archive
-      log "Creating archive: #{File.basename(@archive_basename)}.tar.gz"
+      log "Creating archive: #{@backup_filename}"
 
       tar_filename = "#{@archive_basename}.tar"
 
       log "Making sure archive does not already exist..."
-      execute_command("rm -f #{tar_filename}")
-      execute_command("rm -f #{tar_filename}.gz")
+      Discourse::Utils.execute_command('rm', '-f', tar_filename)
+      Discourse::Utils.execute_command('rm', '-f', "#{tar_filename}.gz")
 
       log "Creating empty archive..."
-      execute_command("tar --create --file #{tar_filename} --files-from /dev/null")
+      Discourse::Utils.execute_command('tar', '--create', '--file', tar_filename, '--files-from', '/dev/null')
 
       log "Archiving data dump..."
-      FileUtils.cd(File.dirname("#{@dump_filename}")) do
-        execute_command(
-          "tar --append --dereference --file #{tar_filename} #{File.basename(@dump_filename)}",
-          "Failed to archive data dump."
+      FileUtils.cd(File.dirname(@dump_filename)) do
+        Discourse::Utils.execute_command(
+          'tar', '--append', '--dereference', '--file', tar_filename, File.basename(@dump_filename),
+          failure_message: "Failed to archive data dump."
         )
       end
 
-      log "Archiving metadata..."
-      FileUtils.cd(File.dirname(@meta_filename)) do
-        execute_command(
-          "tar --append --dereference --file #{tar_filename} #{File.basename(@meta_filename)}",
-          "Failed to archive metadata."
-        )
-      end
+      upload_directory = "uploads/" + @current_db
 
-      if @with_uploads
-        upload_directory = "uploads/" + @current_db
-
-        log "Archiving uploads..."
-        FileUtils.cd(File.join(Rails.root, "public")) do
-          execute_command(
-            "tar --append --dereference --file #{tar_filename} #{upload_directory}",
-            "Failed to archive uploads."
+      log "Archiving uploads..."
+      FileUtils.cd(File.join(Rails.root, "public")) do
+        if File.directory?(upload_directory)
+          Discourse::Utils.execute_command(
+            'tar', '--append', '--dereference', '--warning=no-file-changed', '--file', tar_filename, upload_directory,
+            failure_message: "Failed to archive uploads."
           )
+        else
+          log "No uploads found, skipping archiving uploads..."
         end
       end
 
       remove_tmp_directory
 
       log "Gzipping archive, this may take a while..."
-      execute_command("gzip -5 #{tar_filename}", "Failed to gzip archive.")
+      Discourse::Utils.execute_command('gzip', '-5', tar_filename, failure_message: "Failed to gzip archive.")
     end
 
     def after_create_hook
       log "Executing the after_create_hook for the backup..."
-      backup = Backup.create_from_filename("#{File.basename(@archive_basename)}.tar.gz")
+      backup = Backup.create_from_filename(@backup_filename)
       backup.after_create_hook
     end
 
@@ -258,11 +257,17 @@ module BackupRestore
 
     def notify_user
       log "Notifying '#{@user.username}' of the end of the backup..."
-      if @success
-        SystemMessage.create_from_system_user(@user, :backup_succeeded)
-      else
-        SystemMessage.create_from_system_user(@user, :backup_failed, logs: @logs.join("\n"))
+      status = @success ? :backup_succeeded : :backup_failed
+
+      post = SystemMessage.create_from_system_user(@user, status,
+        logs: Discourse::Utils.pretty_logs(@logs)
+      )
+
+      if !@success && @user.id == Discourse::SYSTEM_USER_ID
+        post.topic.invite_group(@user, Group[:admins])
       end
+
+      post
     end
 
     def clean_up
@@ -276,7 +281,7 @@ module BackupRestore
 
     def remove_tar_leftovers
       log "Removing '.tar' leftovers..."
-      `rm -f #{@archive_directory}/*.tar`
+      system('rm', '-f', "#{@archive_directory}/*.tar")
     end
 
     def remove_tmp_directory

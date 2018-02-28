@@ -6,6 +6,23 @@ describe UserProfile do
     expect(user.user_profile).to be_present
   end
 
+  context "url validation" do
+    let(:user) { Fabricate(:user) }
+    let(:upload) { Fabricate(:upload) }
+
+    it "ensures profile_background is valid" do
+      expect(Fabricate.build(:user_profile, user: user, profile_background: "---%")).not_to be_valid
+      expect(Fabricate.build(:user_profile, user: user, profile_background: "http://example.com/made-up.jpg")).not_to be_valid
+      expect(Fabricate.build(:user_profile, user: user, profile_background: upload.url)).to be_valid
+    end
+
+    it "ensures background_url is valid" do
+      expect(Fabricate.build(:user_profile, user: user, card_background: ";test")).not_to be_valid
+      expect(Fabricate.build(:user_profile, user: user, card_background: "http://example.com/no.jpg")).not_to be_valid
+      expect(Fabricate.build(:user_profile, user: user, card_background: upload.url)).to be_valid
+    end
+  end
+
   describe 'rebaking' do
     it 'correctly rebakes bio' do
       user_profile = Fabricate(:evil_trout).user_profile
@@ -37,16 +54,23 @@ describe UserProfile do
       expect(user_profile).not_to be_valid
     end
 
-    it "doesn't support invalid website" do
-      user_profile = Fabricate.build(:user_profile, website: "http://https://google.com")
-      user_profile.user = Fabricate.build(:user)
-      expect(user_profile).not_to be_valid
-    end
+    context "website validation" do
+      let(:user_profile) { Fabricate.build(:user_profile, user: Fabricate(:user)) }
 
-    it "supports valid website" do
-      user_profile = Fabricate.build(:user_profile, website: "https://google.com")
-      user_profile.user = Fabricate.build(:user)
-      expect(user_profile.valid?).to be true
+      it "should not allow invalid URLs" do
+        user_profile.website = "http://https://google.com"
+        expect(user_profile).to_not be_valid
+      end
+
+      it "validates website domain if user_website_domains_whitelist setting is present" do
+        SiteSetting.user_website_domains_whitelist = "discourse.org"
+
+        user_profile.website = "https://google.com"
+        expect(user_profile).not_to be_valid
+
+        user_profile.website = "http://discourse.org"
+        expect(user_profile).to be_valid
+      end
     end
 
     describe 'after save' do
@@ -81,6 +105,23 @@ describe UserProfile do
     end
   end
 
+  describe 'bio excerpt emojis' do
+    let(:user) { Fabricate(:user) }
+
+    before do
+      CustomEmoji.create!(name: 'test', upload_id: 1)
+      Emoji.clear_cache
+
+      user.user_profile.bio_raw = "hello :test: :woman_scientist:t5: 🤔"
+      user.user_profile.save
+      user.user_profile.reload
+    end
+
+    it 'supports emoji images' do
+      expect(user.user_profile.bio_excerpt(500, keep_emoji_images: true)).to eq("hello <img src=\"/uploads/default/original/1X/f588830852fc8091a094cf0be0be0e6559dc8304.png?v=5\" title=\":test:\" class=\"emoji emoji-custom\" alt=\":test:\"> <img src=\"/images/emoji/twitter/woman_scientist/5.png?v=5\" title=\":woman_scientist:t5:\" class=\"emoji\" alt=\":woman_scientist:t5:\"> <img src=\"/images/emoji/twitter/thinking.png?v=5\" title=\":thinking:\" class=\"emoji\" alt=\":thinking:\">")
+    end
+  end
+
   describe 'bio link stripping' do
 
     it 'returns an empty string with no bio' do
@@ -104,8 +145,8 @@ describe UserProfile do
 
       it 'includes the link as nofollow if the user is not new' do
         user.user_profile.send(:cook)
-        expect(user_profile.bio_excerpt).to match_html("I love <a href='http://discourse.org' rel='nofollow'>http://discourse.org</a>")
-        expect(user_profile.bio_processed).to match_html("<p>I love <a href=\"http://discourse.org\" rel=\"nofollow\">http://discourse.org</a></p>")
+        expect(user_profile.bio_excerpt).to match_html("I love <a href='http://discourse.org' rel='nofollow noopener'>http://discourse.org</a>")
+        expect(user_profile.bio_processed).to match_html("<p>I love <a href=\"http://discourse.org\" rel=\"nofollow noopener\">http://discourse.org</a></p>")
       end
 
       it 'removes the link if the user is new' do
@@ -123,7 +164,7 @@ describe UserProfile do
       end
 
       context 'tl3_links_no_follow is false' do
-        before { SiteSetting.stubs(:tl3_links_no_follow).returns(false) }
+        before { SiteSetting.tl3_links_no_follow = false }
 
         it 'includes the link without nofollow if the user is trust level 3 or higher' do
           user.trust_level = TrustLevel[3]
@@ -143,19 +184,19 @@ describe UserProfile do
           created_user.save
           created_user.reload
           created_user.change_trust_level!(TrustLevel[2])
-          expect(created_user.user_profile.bio_excerpt).to match_html("I love <a href='http://discourse.org' rel='nofollow'>http://discourse.org</a>")
-          expect(created_user.user_profile.bio_processed).to match_html("<p>I love <a href=\"http://discourse.org\" rel=\"nofollow\">http://discourse.org</a></p>")
+          expect(created_user.user_profile.bio_excerpt).to match_html("I love <a href='http://discourse.org' rel='nofollow noopener'>http://discourse.org</a>")
+          expect(created_user.user_profile.bio_processed).to match_html("<p>I love <a href=\"http://discourse.org\" rel=\"nofollow noopener\">http://discourse.org</a></p>")
         end
       end
 
       context 'tl3_links_no_follow is true' do
-        before { SiteSetting.stubs(:tl3_links_no_follow).returns(true) }
+        before { SiteSetting.tl3_links_no_follow = true }
 
         it 'includes the link with nofollow if the user is trust level 3 or higher' do
           user.trust_level = TrustLevel[3]
           user_profile.send(:cook)
-          expect(user_profile.bio_excerpt).to match_html("I love <a href='http://discourse.org' rel='nofollow'>http://discourse.org</a>")
-          expect(user_profile.bio_processed).to match_html("<p>I love <a href=\"http://discourse.org\" rel=\"nofollow\">http://discourse.org</a></p>")
+          expect(user_profile.bio_excerpt).to match_html("I love <a href='http://discourse.org' rel='nofollow noopener'>http://discourse.org</a>")
+          expect(user_profile.bio_processed).to match_html("<p>I love <a href=\"http://discourse.org\" rel=\"nofollow noopener\">http://discourse.org</a></p>")
         end
       end
     end

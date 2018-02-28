@@ -1,7 +1,12 @@
 import { ajax } from 'discourse/lib/ajax';
-import computed from "ember-addons/ember-computed-decorators";
+import { default as computed, observes } from "ember-addons/ember-computed-decorators";
+import GroupHistory from 'discourse/models/group-history';
+import RestModel from 'discourse/models/rest';
+import Category from "discourse/models/category";
+import User from "discourse/models/user";
+import Topic from "discourse/models/topic";
 
-const Group = Discourse.Model.extend({
+const Group = RestModel.extend({
   limit: 50,
   offset: 0,
   user_count: 0,
@@ -14,9 +19,10 @@ const Group = Discourse.Model.extend({
     return Em.isEmpty(value) ? "" : value;
   },
 
-  type: function() {
-    return this.get("automatic") ? "automatic" : "custom";
-  }.property("automatic"),
+  @computed('automatic')
+  type(automatic) {
+    return automatic ? "automatic" : "custom";
+  },
 
   @computed('user_count')
   userCountDisplay(userCount) {
@@ -24,12 +30,12 @@ const Group = Discourse.Model.extend({
     if (userCount > 0) { return userCount; }
   },
 
-  findMembers() {
+  findMembers(params) {
     if (Em.isEmpty(this.get('name'))) { return ; }
 
     const self = this, offset = Math.min(this.get("user_count"), Math.max(this.get("offset"), 0));
 
-    return Group.loadMembers(this.get("name"), offset, this.get("limit")).then(function (result) {
+    return Group.loadMembers(this.get("name"), offset, this.get("limit"), params).then(function (result) {
       var ownerIds = {};
       result.owners.forEach(owner => ownerIds[owner.id] = true);
 
@@ -41,9 +47,9 @@ const Group = Discourse.Model.extend({
           if (ownerIds[member.id]) {
             member.owner = true;
           }
-          return Discourse.User.create(member);
+          return User.create(member);
         }),
-        owners: result.owners.map(owner => Discourse.User.create(owner)),
+        owners: result.owners.map(owner => User.create(owner)),
       });
     });
   },
@@ -82,37 +88,102 @@ const Group = Discourse.Model.extend({
 
   addOwners(usernames) {
     var self = this;
-    return ajax('/admin/groups/' + this.get('id') + '/owners.json', {
+    return ajax(`/admin/groups/${this.get('id')}/owners.json`, {
       type: "PUT",
-      data: { usernames: usernames }
+      data: { group: { usernames: usernames } }
     }).then(function() {
       self.findMembers();
     });
   },
 
+  @computed("display_name", "name")
+  displayName(groupDisplayName, name) {
+    return groupDisplayName || name;
+  },
+
+  @computed('flair_bg_color')
+  flairBackgroundHexColor() {
+    return this.get('flair_bg_color') ? this.get('flair_bg_color').replace(new RegExp("[^0-9a-fA-F]", "g"), "") : null;
+  },
+
+  @computed('flair_color')
+  flairHexColor() {
+    return this.get('flair_color') ? this.get('flair_color').replace(new RegExp("[^0-9a-fA-F]", "g"), "") : null;
+  },
+
+  @computed('mentionable_level')
+  canEveryoneMention(mentionableLevel) {
+    return mentionableLevel === '99';
+  },
+
+  @observes("visibility_level", "canEveryoneMention")
+  _updateAllowMembershipRequests() {
+    if (this.get('visibility_level') !== 0 || !this.get('canEveryoneMention')) {
+      this.set ('allow_membership_requests', false);
+    }
+  },
+
+  @observes("visibility_level")
+  _updatePublic() {
+    if (this.get('visibility_level') !== 0) {
+      this.set('public', false);
+      this.set('allow_membership_requests', false);
+    }
+  },
+
   asJSON() {
-    return {
+    const attrs = {
       name: this.get('name'),
-      alias_level: this.get('alias_level'),
-      visible: !!this.get('visible'),
+      mentionable_level: this.get('mentionable_level'),
+      messageable_level: this.get('messageable_level'),
+      visibility_level: this.get('visibility_level'),
       automatic_membership_email_domains: this.get('emailDomains'),
       automatic_membership_retroactive: !!this.get('automatic_membership_retroactive'),
       title: this.get('title'),
       primary_group: !!this.get('primary_group'),
       grant_trust_level: this.get('grant_trust_level'),
       incoming_email: this.get("incoming_email"),
+      flair_url: this.get('flair_url'),
+      flair_bg_color: this.get('flairBackgroundHexColor'),
+      flair_color: this.get('flairHexColor'),
+      bio_raw: this.get('bio_raw'),
+      public_admission: this.get('public_admission'),
+      public_exit: this.get('public_exit'),
+      allow_membership_requests: this.get('allow_membership_requests'),
+      full_name: this.get('full_name'),
+      default_notification_level: this.get('default_notification_level'),
+      membership_request_template: this.get('membership_request_template')
     };
+
+    if (!this.get('id')) {
+      attrs['usernames'] = this.get('usernames');
+      attrs['owner_usernames'] = this.get('ownerUsernames');
+    }
+
+    return attrs;
   },
 
   create() {
-    var self = this;
-    return ajax("/admin/groups", { type: "POST", data: this.asJSON() }).then(function(resp) {
-      self.set('id', resp.basic_group.id);
-    });
+    return ajax("/admin/groups", { type: "POST", data:  { group: this.asJSON() } })
+      .then(resp => {
+        this.setProperties({
+          id: resp.basic_group.id,
+          usernames: null,
+          ownerUsernames: null
+        });
+
+        this.findMembers();
+      });
   },
 
   save() {
-    return ajax("/admin/groups/" + this.get('id'), { type: "PUT", data: this.asJSON() });
+    const id = this.get('id');
+    const url = this.get('is_group_owner') ? `/groups/${id}` : `/admin/groups/${id}`;
+
+    return ajax(url, {
+      type: "PUT",
+      data: { group: this.asJSON() }
+    });
   },
 
   destroy() {
@@ -120,54 +191,76 @@ const Group = Discourse.Model.extend({
     return ajax("/admin/groups/" + this.get('id'), { type: "DELETE" });
   },
 
+  findLogs(offset, filters) {
+    return ajax(`/groups/${this.get('name')}/logs.json`, { data: { offset, filters } }).then(results => {
+      return Ember.Object.create({
+        logs: results["logs"].map(log => GroupHistory.create(log)),
+        all_loaded: results["all_loaded"]
+      });
+    });
+  },
+
   findPosts(opts) {
     opts = opts || {};
 
-    const type = opts['type'] || 'posts';
+    const type = opts.type || 'posts';
 
     var data = {};
     if (opts.beforePostId) { data.before_post_id = opts.beforePostId; }
+    if (opts.categoryId) { data.category_id = parseInt(opts.categoryId); }
 
-    return ajax(`/groups/${this.get('name')}/${type}.json`, { data: data }).then(posts => {
+    return ajax(`/groups/${this.get('name')}/${type}.json`, { data }).then(posts => {
       return posts.map(p => {
-        p.user = Discourse.User.create(p.user);
-        p.topic = Discourse.Topic.create(p.topic);
+        p.user = User.create(p.user);
+        p.topic = Topic.create(p.topic);
+        p.category = Category.findById(p.category_id);
         return Em.Object.create(p);
       });
     });
   },
 
-  setNotification(notification_level) {
-    this.set("notification_level", notification_level);
+  setNotification(notification_level, userId) {
+    this.set("group_user.notification_level", notification_level);
     return ajax(`/groups/${this.get("name")}/notifications`, {
-      data: { notification_level },
+      data: { notification_level, user_id: userId },
       type: "POST"
+    });
+  },
+
+  requestMembership(reason) {
+    return ajax(`/groups/${this.get('name')}/request_membership`, {
+      type: "POST",
+      data: { reason: reason }
     });
   },
 });
 
 Group.reopenClass({
   findAll(opts) {
-    return ajax("/admin/groups.json", { data: opts }).then(function (groups){
+    return ajax("/groups/search.json", { data: opts }).then(groups => {
       return groups.map(g => Group.create(g));
     });
-  },
-
-  findGroupCounts(name) {
-    return ajax("/groups/" + name + "/counts.json").then(result => Em.Object.create(result.counts));
   },
 
   find(name) {
     return ajax("/groups/" + name + ".json").then(result => Group.create(result.basic_group));
   },
 
-  loadMembers(name, offset, limit) {
+  loadMembers(name, offset, limit, params) {
     return ajax('/groups/' + name + '/members.json', {
-      data: {
+      data: _.extend({
         limit: limit || 50,
         offset: offset || 0
-      }
+      }, params || {})
     });
+  },
+
+  mentionable(name) {
+    return ajax(`/groups/${name}/mentionable`, { data: { name } });
+  },
+
+  messageable(name) {
+    return ajax(`/groups/${name}/messageable`, { data: { name } });
   }
 });
 

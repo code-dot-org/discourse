@@ -11,13 +11,15 @@ class UserAction < ActiveRecord::Base
   BOOKMARK = 3
   NEW_TOPIC = 4
   REPLY = 5
-  RESPONSE= 6
+  RESPONSE = 6
   MENTION = 7
   QUOTE = 9
   EDIT = 11
   NEW_PRIVATE_MESSAGE = 12
   GOT_PRIVATE_MESSAGE = 13
   PENDING = 14
+  SOLVED = 15
+  ASSIGNED = 16
 
   ORDER = Hash[*[
     GOT_PRIVATE_MESSAGE,
@@ -31,7 +33,9 @@ class UserAction < ActiveRecord::Base
     MENTION,
     QUOTE,
     BOOKMARK,
-    EDIT
+    EDIT,
+    SOLVED,
+    ASSIGNED,
   ].each_with_index.to_a.flatten]
 
   # note, this is temporary until we upgrade to rails 4
@@ -71,7 +75,7 @@ SQL
     apply_common_filters(builder, user_id, guardian)
 
     results = builder.exec.to_a
-    results.sort! { |a,b| ORDER[a.action_type] <=> ORDER[b.action_type] }
+    results.sort! { |a, b| ORDER[a.action_type] <=> ORDER[b.action_type] }
 
     results
   end
@@ -105,10 +109,10 @@ SQL
        GROUP BY g.name
     SQL
 
-    result = { all: all, mine: mine, unread: unread}
+    result = { all: all, mine: mine, unread: unread }
 
     exec_sql(sql, user_id: user_id).each do |row|
-      (result[:groups] ||= []) << {name: row["name"], count: row["count"].to_i}
+      (result[:groups] ||= []) << { name: row["name"], count: row["count"].to_i }
     end
 
     result
@@ -119,7 +123,7 @@ SQL
     stream(action_id: action_id, guardian: guardian).first
   end
 
-  def self.stream_queued(opts=nil)
+  def self.stream_queued(opts = nil)
     opts ||= {}
 
     offset = opts[:offset] || 0
@@ -152,7 +156,7 @@ SQL
       .map_exec(UserActionRow)
   end
 
-  def self.stream(opts=nil)
+  def self.stream(opts = nil)
     opts ||= {}
 
     action_types = opts[:action_types]
@@ -162,6 +166,18 @@ SQL
     ignore_private_messages = opts[:ignore_private_messages]
     offset = opts[:offset] || 0
     limit = opts[:limit] || 60
+
+    # Acting user columns. Can be extended by plugins to include custom avatar
+    # columns
+    acting_cols = [
+      'u.id AS acting_user_id',
+      'u.name AS acting_name'
+    ]
+
+    AvatarLookup.lookup_columns.each do |c|
+      next if c == :id || c['.']
+      acting_cols << "u.#{c} AS acting_#{c}"
+    end
 
     # The weird thing is that target_post_id can be null, so it makes everything
     #  ever so more complex. Should we allow this, not sure.
@@ -175,8 +191,7 @@ SQL
         p.reply_to_post_number,
         pu.username, pu.name, pu.id user_id,
         pu.uploaded_avatar_id,
-        u.username acting_username, u.name acting_name, u.id acting_user_id,
-        u.uploaded_avatar_id acting_uploaded_avatar_id,
+        #{acting_cols.join(', ')},
         coalesce(p.cooked, p2.cooked) cooked,
         CASE WHEN coalesce(p.deleted_at, p2.deleted_at, t.deleted_at) IS NULL THEN false ELSE true END deleted,
         p.hidden,
@@ -205,6 +220,11 @@ SQL
     else
       builder.where("a.user_id = :user_id", user_id: user_id.to_i)
       builder.where("a.action_type in (:action_types)", action_types: action_types) if action_types && action_types.length > 0
+
+      unless SiteSetting.enable_mentions?
+        builder.where("a.action_type <> :mention_type", mention_type: UserAction::MENTION)
+      end
+
       builder
         .order_by("a.created_at desc")
         .offset(offset.to_i)
@@ -256,7 +276,7 @@ SQL
         end
 
         if action.user
-          MessageBus.publish("/users/#{action.user.username.downcase}", action.id, user_ids: [user_id], group_ids: group_ids)
+          MessageBus.publish("/u/#{action.user.username.downcase}", action.id, user_ids: [user_id], group_ids: group_ids)
         end
 
         action
@@ -272,10 +292,12 @@ SQL
     require_parameters(hash, :action_type, :user_id, :acting_user_id, :target_topic_id, :target_post_id)
     if action = UserAction.find_by(hash.except(:created_at))
       action.destroy
-      MessageBus.publish("/user/#{hash[:user_id]}", {user_action_id: action.id, remove: true})
+      MessageBus.publish("/user/#{hash[:user_id]}", user_action_id: action.id, remove: true)
     end
 
-    update_like_count(hash[:user_id], hash[:action_type], -1)
+    if !Topic.where(id: hash[:target_topic_id], archetype: Archetype.private_message).exists?
+      update_like_count(hash[:user_id], hash[:action_type], -1)
+    end
   end
 
   def self.synchronize_target_topic_ids(post_ids = nil)
@@ -325,7 +347,7 @@ SQL
     end
   end
 
-  def self.apply_common_filters(builder,user_id,guardian,ignore_private_messages=false)
+  def self.apply_common_filters(builder, user_id, guardian, ignore_private_messages = false)
     # We never return deleted topics in activity
     builder.where("t.deleted_at is null")
 
@@ -335,7 +357,7 @@ SQL
 
       current_user_id = -2
       current_user_id = guardian.user.id if guardian.user
-      builder.where("NOT COALESCE(p.hidden, false) OR p.user_id = :current_user_id", current_user_id: current_user_id )
+      builder.where("NOT COALESCE(p.hidden, false) OR p.user_id = :current_user_id", current_user_id: current_user_id)
     end
 
     visible_post_types = Topic.visible_post_types(guardian.user)
@@ -350,8 +372,24 @@ SQL
       builder.where('a.action_type <> :pending', pending: UserAction::PENDING)
     end
 
-    if !guardian.can_see_private_messages?(user_id) || ignore_private_messages
-      builder.where("t.archetype != :archetype", archetype: Archetype::private_message)
+    if !guardian.can_see_private_messages?(user_id) || ignore_private_messages || !guardian.user
+      builder.where("t.archetype <> :private_message", private_message: Archetype::private_message)
+    else
+      unless guardian.is_admin?
+        sql = <<~SQL
+        t.archetype <> :private_message OR
+        EXISTS (
+          SELECT 1 FROM topic_allowed_users tu WHERE tu.topic_id = t.id AND tu.user_id = :current_user_id
+        ) OR
+        EXISTS (
+          SELECT 1 FROM topic_allowed_groups tg WHERE tg.topic_id = t.id AND tg.group_id IN (
+            SELECT group_id FROM group_users gu WHERE gu.user_id = :current_user_id
+          )
+        )
+        SQL
+
+        builder.where(sql, private_message: Archetype::private_message, current_user_id: guardian.user.id)
+      end
     end
 
     unless guardian.is_admin?
@@ -359,7 +397,7 @@ SQL
       if allowed.present?
         builder.where("( c.read_restricted IS NULL OR
                          NOT c.read_restricted OR
-                        (c.read_restricted and c.id in (:cats)) )", cats: guardian.secure_category_ids )
+                        (c.read_restricted and c.id in (:cats)) )", cats: guardian.secure_category_ids)
       else
         builder.where("(c.read_restricted IS NULL OR NOT c.read_restricted)")
       end

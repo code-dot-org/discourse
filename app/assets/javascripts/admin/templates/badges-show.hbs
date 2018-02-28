@@ -1,4 +1,4 @@
-<div class='current-badge span13'>
+{{#d-section class="current-badge content-body"}}
   <form class="form-horizontal">
     <div>
       <label for="name">{{i18n 'admin.badges.name'}}</label>
@@ -26,9 +26,8 @@
       {{combo-box name="badge_type_id"
                   value=buffered.badge_type_id
                   content=badgeTypes
-                  optionValuePath="content.id"
-                  optionLabelPath="content.name"
-                  disabled=readOnly}}
+                  allowInitialValueMutation=true
+                  isDisabled=readOnly}}
     </div>
 
     <div>
@@ -36,9 +35,8 @@
       {{combo-box name="badge_grouping_id"
                   value=buffered.badge_grouping_id
                   content=badgeGroupings
-                  optionValuePath="content.id"
-                  optionLabelPath="content.displayName"}}
-      &nbsp;<button {{action "editGroupings"}} class='btn'>{{fa-icon 'pencil'}}</button>
+                  nameProperty="name"}}
+      &nbsp;<button {{action "editGroupings"}} class='btn'>{{d-icon 'pencil'}}</button>
     </div>
 
 
@@ -60,42 +58,44 @@
       {{/if}}
     </div>
 
-    <div>
-      <label for="query">{{i18n 'admin.badges.query'}}</label>
-      {{textarea name="query" value=buffered.query disabled=readOnly}}
-    </div>
+    {{#if siteSettings.enable_badge_sql}}
+      <div>
+        <label for="query">{{i18n 'admin.badges.query'}}</label>
+        {{ace-editor content=buffered.query mode="sql" disabled=readOnly}}
+      </div>
 
-    {{#if hasQuery}}
-      <a href {{action "preview" buffered "false"}}>{{i18n 'admin.badges.preview.link_text'}}</a>
-      |
-      <a href {{action "preview" buffered "true"}}>{{i18n 'admin.badges.preview.plan_text'}}</a>
-      {{#if preview_loading}}
-        {{i18n 'loading'}}...
+      {{#if hasQuery}}
+        <a href {{action "preview" buffered "false"}}>{{i18n 'admin.badges.preview.link_text'}}</a>
+        |
+        <a href {{action "preview" buffered "true"}}>{{i18n 'admin.badges.preview.plan_text'}}</a>
+        {{#if preview_loading}}
+          {{i18n 'loading'}}...
+        {{/if}}
+
+        <div>
+          <label>
+            {{input type="checkbox" checked=buffered.auto_revoke disabled=readOnly}}
+            {{i18n 'admin.badges.auto_revoke'}}
+          </label>
+        </div>
+
+        <div>
+          <label>
+            {{input type="checkbox" checked=buffered.target_posts disabled=readOnly}}
+            {{i18n 'admin.badges.target_posts'}}
+          </label>
+        </div>
+
+        <div>
+          <label for="trigger">{{i18n 'admin.badges.trigger'}}</label>
+          {{combo-box name="trigger"
+                      value=buffered.trigger
+                      content=badgeTriggers
+                      optionValuePath="content.id"
+                      optionLabelPath="content.name"
+                      disabled=readOnly}}
+        </div>
       {{/if}}
-
-      <div>
-        <label>
-          {{input type="checkbox" checked=buffered.auto_revoke disabled=readOnly}}
-          {{i18n 'admin.badges.auto_revoke'}}
-        </label>
-      </div>
-
-      <div>
-        <label>
-          {{input type="checkbox" checked=buffered.target_posts disabled=readOnly}}
-          {{i18n 'admin.badges.target_posts'}}
-        </label>
-      </div>
-
-      <div>
-        <label for="trigger">{{i18n 'admin.badges.trigger'}}</label>
-        {{combo-box name="trigger"
-                    value=buffered.trigger
-                    content=badgeTriggers
-                    optionValuePath="content.id"
-                    optionLabelPath="content.name"
-                    disabled=readOnly}}
-      </div>
     {{/if}}
 
     <div>
@@ -141,10 +141,10 @@
       {{/unless}}
     </div>
   </form>
-</div>
+{{/d-section}}
 
 {{#if grant_count}}
-  <div class="span13 current-badge-actions">
+  <div class="content-body current-badge-actions">
     <div>
       {{#link-to 'badges.show' this}}{{i18n 'badges.granted' count=grant_count}}{{/link-to}}
     </div>

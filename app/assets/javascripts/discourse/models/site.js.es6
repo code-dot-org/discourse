@@ -20,7 +20,7 @@ const Site = RestModel.extend({
   flagTypes() {
     const postActionTypes = this.get('post_action_types');
     if (!postActionTypes) return [];
-    return postActionTypes.filterProperty('is_flag', true);
+    return postActionTypes.filterBy('is_flag', true);
   },
 
   topicCountDesc: ['topic_count:desc'],
@@ -54,6 +54,14 @@ const Site = RestModel.extend({
     return result;
   },
 
+  // Returns it in the correct order, by setting
+  @computed
+  categoriesList() {
+    return this.siteSettings.fixed_category_positions ?
+      this.get('categories') :
+      this.get('sortedCategories');
+  },
+
   postActionTypeById(id) {
     return this.get("postActionByIdLookup.action" + id);
   },
@@ -64,7 +72,7 @@ const Site = RestModel.extend({
 
   removeCategory(id) {
     const categories = this.get('categories');
-    const existingCategory = categories.findProperty('id', id);
+    const existingCategory = categories.findBy('id', id);
     if (existingCategory) {
       categories.removeObject(existingCategory);
       delete this.get('categoriesById').categoryId;
@@ -74,7 +82,7 @@ const Site = RestModel.extend({
   updateCategory(newCategory) {
     const categories = this.get('categories');
     const categoryId = Em.get(newCategory, 'id');
-    const existingCategory = categories.findProperty('id', categoryId);
+    const existingCategory = categories.findBy('id', categoryId);
 
     // Don't update null permissions
     if (newCategory.permission === null) { delete newCategory.permission; }
@@ -94,7 +102,7 @@ Site.reopenClass(Singleton, {
 
   // The current singleton will retrieve its attributes from the `PreloadStore`.
   createCurrent() {
-    const store = Discourse.__container__.lookup('store:main');
+    const store = Discourse.__container__.lookup('service:store');
     return store.createRecord('site', PreloadStore.get('site'));
   },
 

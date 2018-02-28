@@ -51,7 +51,7 @@ class QueuedPost < ActiveRecord::Base
   end
 
   def create_options
-    opts = {raw: raw}
+    opts = { raw: raw }
     opts.merge!(post_options.symbolize_keys)
 
     opts[:cooking_options].symbolize_keys! if opts[:cooking_options]
@@ -61,21 +61,30 @@ class QueuedPost < ActiveRecord::Base
 
   def approve!(approved_by)
     created_post = nil
+
+    creator = PostCreator.new(user, create_options.merge(
+      skip_validations: true,
+      skip_jobs: true,
+      skip_events: true
+    ))
+
     QueuedPost.transaction do
       change_to!(:approved, approved_by)
 
-      UserBlocker.unblock(user, approved_by) if user.blocked?
+      UserSilencer.unsilence(user, approved_by) if user.silenced?
 
-      creator = PostCreator.new(user, create_options.merge(skip_validations: true))
       created_post = creator.create
 
       unless created_post && creator.errors.blank?
         raise StandardError.new(creator.errors.full_messages.join(" "))
       end
-
     end
 
-    DiscourseEvent.trigger(:approved_post, self)
+    # Do sidekiq work outside of the transaction
+    creator.enqueue_jobs
+    creator.trigger_after_events
+
+    DiscourseEvent.trigger(:approved_post, self, created_post)
     created_post
   end
 
@@ -99,7 +108,7 @@ class QueuedPost < ActiveRecord::Base
       end
 
       # Update the record in memory too, and clear the dirty flag
-      updates.each {|k, v| send("#{k}=", v) }
+      updates.each { |k, v| send("#{k}=", v) }
       changes_applied
 
       QueuedPost.broadcast_new! if visible?
@@ -122,8 +131,8 @@ end
 #  approved_at    :datetime
 #  rejected_by_id :integer
 #  rejected_at    :datetime
-#  created_at     :datetime
-#  updated_at     :datetime
+#  created_at     :datetime         not null
+#  updated_at     :datetime         not null
 #
 # Indexes
 #

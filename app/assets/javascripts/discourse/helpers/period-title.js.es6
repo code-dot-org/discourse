@@ -1,4 +1,4 @@
-import { htmlHelper } from 'discourse/lib/helpers';
+import { htmlHelper } from 'discourse-common/lib/helpers';
 
 const TITLE_SUBS = {
   all: 'all_time',
@@ -30,7 +30,7 @@ export default htmlHelper((period, options) => {
         break;
     }
 
-    return `${title} <span class='top-date-string'>${dateString}</span>`;
+    return `<span class="date-section">${title}</span><span class='top-date-string'>${dateString}</span>`;
   } else {
     return title;
   }

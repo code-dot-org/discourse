@@ -1,0 +1,47 @@
+{{#if categories}}
+  <table class="category-list {{if showTopics 'with-topics'}}">
+    <thead>
+      <tr>
+        <th class="category"><span aria-role="heading" aria-level="2" id="categories-only-category">{{i18n 'categories.category'}}</span></th>
+        <th class="topics">{{i18n 'categories.topics'}}</th>
+        {{#if showTopics}}
+          <th class="latest">{{i18n 'categories.latest'}}</th>
+        {{/if}}
+      </tr>
+    </thead>
+    <tbody aria-labelledby="categories-only-category">
+      {{#each categories as |c|}}
+        <tr data-category-id={{c.id}} class="{{if c.description_excerpt 'has-description' 'no-description'}} {{if c.uploaded_logo.url 'has-logo' 'no-logo'}} {{c.category_collapse_name}}">
+          <td class="category" style={{border-color c.color}}>
+            <div>
+              {{category-title-link category=c}}
+              <div class="category-description">
+                {{{dir-span c.description_excerpt}}}
+              </div>
+              {{#if c.category_expanding_class}}
+                  <button class="btn"
+                    {{action "expand" c.category_expanding_class}}
+                    id={{c.category_expanding_class}}
+                  >
+                    Expand units for this course
+                  </button>
+              {{/if}}
+              <div class="clearfix"></div>
+            </div>
+          </td>
+          <td class="topics">
+            <div title={{c.statTitle}}>{{{c.stat}}}</div>
+            {{category-unread category=c tagName="div" class="unread-new"}}
+          </td>
+          {{#if showTopics}}
+            <td class="latest">
+              {{#each c.featuredTopics as |t|}}
+                {{featured-topic topic=t latestTopicOnly=latestTopicOnly}}
+              {{/each}}
+            </td>
+          {{/if}}
+        </tr>
+      {{/each}}
+    </tbody>
+  </table>
+{{/if}}

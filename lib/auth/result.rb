@@ -3,10 +3,14 @@ class Auth::Result
                 :email_valid, :extra_data, :awaiting_activation,
                 :awaiting_approval, :authenticated, :authenticator_name,
                 :requires_invite, :not_allowed_from_ip_address,
-                :admin_not_allowed_from_ip_address, :omit_username
+                :admin_not_allowed_from_ip_address, :omit_username,
+                :skip_email_validation, :destination_url
 
-  attr_accessor :failed,
-                :failed_reason
+  attr_accessor(
+    :failed,
+    :failed_reason,
+    :failed_code
+  )
 
   def initialize
     @failed = false
@@ -23,7 +27,8 @@ class Auth::Result
       omit_username: omit_username,
       name: name,
       authenticator_name: authenticator_name,
-      extra_data: extra_data }
+      extra_data: extra_data,
+      skip_email_validation: !!skip_email_validation }
   end
 
   def to_client_hash
@@ -33,17 +38,19 @@ class Auth::Result
       if user.suspended?
         {
           suspended: true,
-          suspended_message: I18n.t( user.suspend_reason ? "login.suspended_with_reason" : "login.suspended",
-                                     {date: I18n.l(user.suspended_till, format: :date_only), reason: user.suspend_reason} )
+          suspended_message: I18n.t(user.suspend_reason ? "login.suspended_with_reason" : "login.suspended",
+                                     date: I18n.l(user.suspended_till, format: :date_only), reason: user.suspend_reason)
         }
       else
-        {
+        result = {
           authenticated: !!authenticated,
           awaiting_activation: !!awaiting_activation,
           awaiting_approval: !!awaiting_approval,
           not_allowed_from_ip_address: !!not_allowed_from_ip_address,
           admin_not_allowed_from_ip_address: !!admin_not_allowed_from_ip_address
         }
+        result[:destination_url] = destination_url if authenticated && destination_url.present?
+        result
       end
     else
       result = { email: email,

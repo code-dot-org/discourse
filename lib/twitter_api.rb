@@ -4,8 +4,8 @@ class TwitterApi
   class << self
 
     def prettify_tweet(tweet)
-      text = tweet["text"].dup
-      if entities = tweet["entities"] and urls = entities["urls"]
+      text = tweet["full_text"].dup
+      if (entities = tweet["entities"]) && (urls = entities["urls"])
         urls.each do |url|
           text.gsub!(url["url"], "<a target='_blank' href='#{url["expanded_url"]}'>#{url["display_url"]}</a>")
         end
@@ -21,6 +21,10 @@ class TwitterApi
           if m['type'] == 'photo'
             if large = m['sizes']['large']
               result << "<img class='tweet-image' src='#{m['media_url_https']}' width='#{large['w']}' height='#{large['h']}'>"
+            end
+          elsif m['type'] == 'video'
+            if large = m['sizes']['large']
+              result << "<iframe class='tweet-video' src='https://twitter.com/i/videos/#{tweet['id_str']}' width='#{large['w']}' height='#{large['h']}' frameborder='0'></iframe>"
             end
           end
         end
@@ -52,7 +56,7 @@ class TwitterApi
     protected
 
     def link_handles_in(text)
-      text.scan(/\s@(\w+)/).flatten.uniq.each do |handle|
+      text.scan(/(?:^|\s)@(\w+)/).flatten.uniq.each do |handle|
         text.gsub!("@#{handle}", [
           "<a href='https://twitter.com/#{handle}' target='_blank'>",
             "@#{handle}",
@@ -64,7 +68,7 @@ class TwitterApi
     end
 
     def link_hashtags_in(text)
-      text.scan(/\s#(\w+)/).flatten.uniq.each do |hashtag|
+      text.scan(/(?:^|\s)#(\w+)/).flatten.uniq.each do |hashtag|
         text.gsub!("##{hashtag}", [
           "<a href='https://twitter.com/search?q=%23#{hashtag}' ",
           "target='_blank'>",
@@ -81,7 +85,7 @@ class TwitterApi
     end
 
     def tweet_uri_for(id)
-      URI.parse "#{BASE_URL}/1.1/statuses/show.json?id=#{id}"
+      URI.parse "#{BASE_URL}/1.1/statuses/show.json?id=#{id}&tweet_mode=extended"
     end
 
     unless defined? BASE_URL
@@ -120,7 +124,6 @@ class TwitterApi
     def auth_uri
       URI.parse "#{BASE_URL}/oauth2/token"
     end
-
 
     def http(uri)
       Net::HTTP.new(uri.host, uri.port).tap { |http| http.use_ssl = true }

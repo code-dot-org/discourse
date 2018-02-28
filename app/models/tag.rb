@@ -1,4 +1,6 @@
 class Tag < ActiveRecord::Base
+  include Searchable
+
   validates :name, presence: true, uniqueness: true
 
   has_many :tag_users # notification settings
@@ -12,27 +14,61 @@ class Tag < ActiveRecord::Base
   has_many :tag_group_memberships
   has_many :tag_groups, through: :tag_group_memberships
 
-  def self.tags_by_count_query(opts={})
-    q = TopicTag.joins(:tag, :topic).group("topic_tags.tag_id, tags.name").order('count_all DESC')
-    q = q.limit(opts[:limit]) if opts[:limit]
-    q
+  after_save :index_search
+
+  def self.ensure_consistency!
+    update_topic_counts # topic_count counter cache can miscount
   end
 
-  def self.category_tags_by_count_query(category, opts={})
-    tags_by_count_query(opts).where("tags.id in (select tag_id from category_tags where category_id = ?)", category.id)
-                             .where("topics.category_id = ?", category.id)
+  def self.update_topic_counts
+    Category.exec_sql <<~SQL
+      UPDATE tags t
+      SET topic_count = x.topic_count
+      FROM (
+        SELECT COUNT(topics.id) AS topic_count, tags.id AS tag_id
+        FROM tags
+        LEFT JOIN topic_tags ON tags.id = topic_tags.tag_id
+        LEFT JOIN topics ON topics.id = topic_tags.topic_id AND topics.deleted_at IS NULL AND topics.archetype != 'private_message'
+        GROUP BY tags.id
+      ) x
+      WHERE x.tag_id = t.id
+        AND x.topic_count <> t.topic_count
+    SQL
   end
 
-  def self.top_tags(limit_arg: nil, category: nil)
+  def self.top_tags(limit_arg: nil, category: nil, guardian: nil)
     limit = limit_arg || SiteSetting.max_tags_in_filter_list
+    scope_category_ids = (guardian || Guardian.new).allowed_category_ids
 
-    tags = DiscourseTagging.filter_allowed_tags(tags_by_count_query(limit: limit), nil, category: category)
+    if category
+      scope_category_ids &= ([category.id] + category.subcategories.pluck(:id))
+    end
 
-    tags.count.map {|name, _| name}
+    return [] if scope_category_ids.empty?
+
+    tag_names_with_counts = Tag.exec_sql <<~SQL
+      SELECT tags.name as tag_name, SUM(stats.topic_count) AS sum_topic_count
+        FROM category_tag_stats stats
+  INNER JOIN tags ON stats.tag_id = tags.id AND stats.topic_count > 0
+       WHERE stats.category_id in (#{scope_category_ids.join(',')})
+    GROUP BY tags.name
+    ORDER BY sum_topic_count DESC, tag_name ASC
+       LIMIT #{limit}
+    SQL
+
+    tag_names_with_counts.map { |row| row['tag_name'] }
   end
 
   def self.include_tags?
     SiteSetting.tagging_enabled && SiteSetting.show_filter_by_tag
+  end
+
+  def full_url
+    "#{Discourse.base_url}/tags/#{self.name}"
+  end
+
+  def index_search
+    SearchIndexer.index(self)
   end
 end
 
@@ -43,8 +79,8 @@ end
 #  id          :integer          not null, primary key
 #  name        :string           not null
 #  topic_count :integer          default(0), not null
-#  created_at  :datetime
-#  updated_at  :datetime
+#  created_at  :datetime         not null
+#  updated_at  :datetime         not null
 #
 # Indexes
 #

@@ -2,14 +2,14 @@ require_dependency 'ip_addr'
 
 class Admin::ScreenedIpAddressesController < Admin::AdminController
 
-  before_filter :fetch_screened_ip_address, only: [:update, :destroy]
+  before_action :fetch_screened_ip_address, only: [:update, :destroy]
 
   def index
     filter = params[:filter]
     filter = IPAddr.handle_wildcards(filter)
 
     screened_ip_addresses = ScreenedIpAddress
-    screened_ip_addresses = screened_ip_addresses.where("cidr '#{filter}' >>= ip_address") if filter.present?
+    screened_ip_addresses = screened_ip_addresses.where("cidr :filter >>= ip_address", filter: filter) if filter.present?
     screened_ip_addresses = screened_ip_addresses.limit(200).order('match_count desc')
 
     begin
@@ -46,7 +46,7 @@ class Admin::ScreenedIpAddressesController < Admin::AdminController
 
   def roll_up
     subnets = ScreenedIpAddress.roll_up(current_user)
-    render json: success_json.merge!({ subnets: subnets })
+    render json: success_json.merge!(subnets: subnets)
   end
 
   private

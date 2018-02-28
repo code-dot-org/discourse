@@ -1,26 +1,61 @@
 import MountWidget from 'discourse/components/mount-widget';
 import Docking from 'discourse/mixins/docking';
 import { observes } from 'ember-addons/ember-computed-decorators';
+import optionalService from 'discourse/lib/optional-service';
 
-const FIXED_POS = 85;
+const headerPadding = () => parseInt($('#main-outlet').css('padding-top')) + 3;
 
 export default MountWidget.extend(Docking, {
+  adminTools: optionalService(),
   widget: 'topic-timeline-container',
   dockBottom: null,
   dockAt: null,
 
   buildArgs() {
-    return { topic: this.get('topic'),
-             topicTrackingState: this.topicTrackingState,
-             enteredIndex: this.get('enteredIndex'),
-             dockAt: this.dockAt,
-             top: this.dockAt || FIXED_POS,
-             dockBottom: this.dockBottom };
+    let attrs =  {
+      topic: this.get('topic'),
+      notificationLevel: this.get('notificationLevel'),
+      topicTrackingState: this.topicTrackingState,
+      enteredIndex: this.get('enteredIndex'),
+      dockAt: this.dockAt,
+      dockBottom: this.dockBottom,
+      mobileView: this.get('site.mobileView')
+    };
+
+    let event = this.get('prevEvent');
+    if (event) {
+      attrs.enteredIndex = event.postIndex-1;
+    }
+
+    if (this.get('fullscreen')) {
+      attrs.fullScreen = true;
+      attrs.addShowClass = this.get('addShowClass');
+    } else {
+      attrs.top = this.dockAt || headerPadding();
+    }
+
+    return attrs;
   },
 
   @observes('topic.highest_post_number', 'loading')
   newPostAdded() {
     this.queueRerender(() => this.queueDockCheck());
+  },
+
+  @observes('topic.details.notification_level')
+  _queueRerender() {
+    this.queueRerender();
+  },
+
+  fastDockCheck(){
+    // we need to dock super fast here, avoid any slow methods
+    // this is not debounced
+    const offset = window.pageYOffset;
+
+    if (offset && this.fastDockAt && offset > this.fastDockAt) {
+      this.fastDockAt = null;
+      $('.timeline-container').addClass('timeline-docked timeline-docked-bottom');
+    }
   },
 
   dockCheck(info) {
@@ -33,18 +68,19 @@ export default MountWidget.extend(Docking, {
     const footerHeight = $('.timeline-footer-controls').outerHeight(true) || 0;
 
     const prev = this.dockAt;
-    const posTop = FIXED_POS + info.offset();
+    const posTop = headerPadding() + info.offset();
     const pos = posTop + timelineHeight;
 
     this.dockBottom = false;
     if (posTop < topicTop) {
-      this.dockAt = topicTop;
+      this.dockAt = parseInt(topicTop, 10);
     } else if (pos > topicBottom + footerHeight) {
-      this.dockAt = (topicBottom - timelineHeight) + footerHeight;
+      this.dockAt = parseInt((topicBottom - timelineHeight) + footerHeight, 10);
       this.dockBottom = true;
       if (this.dockAt < 0) { this.dockAt = 0; }
     } else {
       this.dockAt = null;
+      this.fastDockAt = parseInt(topicBottom - timelineHeight + footerHeight - offsetTop, 10);
     }
 
     if (this.dockAt !== prev) {
@@ -54,6 +90,21 @@ export default MountWidget.extend(Docking, {
 
   didInsertElement() {
     this._super();
+
+    if (this.get('fullscreen') && !this.get('addShowClass')) {
+      Em.run.next(()=>{
+        this.set('addShowClass', true);
+        this.queueRerender();
+      });
+    }
+
     this.dispatch('topic:current-post-scrolled', 'timeline-scrollarea');
+  },
+
+  showModerationHistory() {
+    this.get('adminTools').showModerationHistory({
+      filter: 'topic',
+      topic_id: this.get('topic.id')
+    });
   }
 });

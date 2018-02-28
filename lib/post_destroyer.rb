@@ -6,34 +6,37 @@ class PostDestroyer
 
   def self.destroy_old_hidden_posts
     Post.where(deleted_at: nil, hidden: true)
-        .where("hidden_at < ?", 30.days.ago)
-        .find_each do |post|
-        PostDestroyer.new(Discourse.system_user, post).destroy
-      end
+      .where("hidden_at < ?", 30.days.ago)
+      .find_each do |post|
+      PostDestroyer.new(Discourse.system_user, post).destroy
+    end
   end
 
   def self.destroy_stubs
+    context = I18n.t('remove_posts_deleted_by_author')
+
     # exclude deleted topics and posts that are actively flagged
     Post.where(deleted_at: nil, user_deleted: true)
-        .where("NOT EXISTS (
+      .where("NOT EXISTS (
             SELECT 1 FROM topics t
             WHERE t.deleted_at IS NOT NULL AND
                   t.id = posts.topic_id
         )")
-        .where("updated_at < ? AND post_number > 1", SiteSetting.delete_removed_posts_after.hours.ago)
-        .where("NOT EXISTS (
+      .where("updated_at < ? AND post_number > 1", SiteSetting.delete_removed_posts_after.hours.ago)
+      .where("NOT EXISTS (
                   SELECT 1
                   FROM post_actions pa
                   WHERE pa.post_id = posts.id AND
                         pa.deleted_at IS NULL AND
                         pa.post_action_type_id IN (?)
               )", PostActionType.notify_flag_type_ids)
-        .each do |post|
-      PostDestroyer.new(Discourse.system_user, post).destroy
+      .find_each do |post|
+
+      PostDestroyer.new(Discourse.system_user, post, context: context).destroy
     end
   end
 
-  def initialize(user, post, opts={})
+  def initialize(user, post, opts = {})
     @user = user
     @post = post
     @topic = post.topic if post
@@ -41,12 +44,18 @@ class PostDestroyer
   end
 
   def destroy
-    if @user.staff? || SiteSetting.delete_removed_posts_after < 1
+    delete_removed_posts_after = @opts[:delete_removed_posts_after] || SiteSetting.delete_removed_posts_after
+
+    if @user.staff? || delete_removed_posts_after < 1
       perform_delete
     elsif @user.id == @post.user_id
-      mark_for_deletion
+      mark_for_deletion(delete_removed_posts_after)
     end
     DiscourseEvent.trigger(:post_destroyed, @post, @opts, @user)
+
+    if @post.is_first_post? && @post.topic
+      DiscourseEvent.trigger(:topic_destroyed, @post.topic, @user)
+    end
   end
 
   def recover
@@ -60,18 +69,33 @@ class PostDestroyer
     topic.update_statistics
     recover_user_actions
     DiscourseEvent.trigger(:post_recovered, @post, @opts, @user)
+    DiscourseEvent.trigger(:topic_recovered, topic, @user) if @post.is_first_post?
   end
 
   def staff_recovered
     @post.recover!
 
     if author = @post.user
-      author.user_stat.post_count += 1
+      if @post.is_first_post?
+        author.user_stat.topic_count += 1
+      else
+        author.user_stat.post_count += 1
+      end
       author.user_stat.save!
     end
 
+    if @post.is_first_post? && @post.topic && !@post.topic.private_message?
+      # Update stats of all people who replied
+      counts = Post.where(post_type: Post.types[:regular], topic_id: @post.topic_id).where('post_number > 1').group(:user_id).count
+      counts.each do |user_id, count|
+        if user_stat = UserStat.where(user_id: user_id).first
+          user_stat.update_attributes(post_count: user_stat.post_count + count)
+        end
+      end
+    end
+
     @post.publish_change_to_clients! :recovered
-    TopicTrackingState.publish_recover(@post.topic) if @post.topic && @post.post_number == 1
+    TopicTrackingState.publish_recover(@post.topic) if @post.topic && @post.is_first_post?
   end
 
   # When a post is properly deleted. Well, it's still soft deleted, but it will no longer
@@ -107,11 +131,14 @@ class PostDestroyer
   end
 
   # When a user 'deletes' their own post. We just change the text.
-  def mark_for_deletion
+  def mark_for_deletion(delete_removed_posts_after = SiteSetting.delete_removed_posts_after)
     I18n.with_locale(SiteSetting.default_locale) do
 
       # don't call revise from within transaction, high risk of deadlock
-      @post.revise(@user, { raw: I18n.t('js.post.deleted_by_author', count: SiteSetting.delete_removed_posts_after) }, force_new_version: true)
+      @post.revise(@user,
+        { raw: I18n.t('js.post.deleted_by_author', count: delete_removed_posts_after) },
+        force_new_version: true
+      )
 
       Post.transaction do
         @post.update_column(:user_deleted, true)
@@ -182,20 +209,22 @@ class PostDestroyer
 
   def recover_user_actions
     # TODO: Use a trash concept for `user_actions` to avoid churn and simplify this?
-    UserActionObserver.log_post(@post)
+    UserActionCreator.log_post(@post)
   end
 
   def remove_associated_replies
     post_ids = PostReply.where(reply_id: @post.id).pluck(:post_id)
 
     if post_ids.present?
-      PostReply.delete_all reply_id: @post.id
+      PostReply.where(reply_id: @post.id).delete_all
       Post.where(id: post_ids).each { |p| p.update_column :reply_count, p.replies.count }
     end
   end
 
   def remove_associated_notifications
-    Notification.delete_all topic_id: @post.topic_id, post_number: @post.post_number
+    Notification
+      .where(topic_id: @post.topic_id, post_number: @post.post_number)
+      .delete_all
   end
 
   def update_associated_category_latest_topic
@@ -216,10 +245,12 @@ class PostDestroyer
       author.user_stat.first_post_created_at = author.posts.order('created_at ASC').first.try(:created_at)
     end
 
-    author.user_stat.post_count -= 1
+    if @post.post_type == Post.types[:regular] && !@post.is_first_post? && !@topic.nil?
+      author.user_stat.post_count -= 1
+    end
     author.user_stat.topic_count -= 1 if @post.is_first_post?
 
-    # We don't count replies to your own topics
+    # We don't count replies to your own topics in topic_reply_count
     if @topic && author.id != @topic.user_id
       author.user_stat.update_topic_reply_count
     end
@@ -229,6 +260,16 @@ class PostDestroyer
     if @post.created_at == author.last_posted_at
       author.last_posted_at = author.posts.order('created_at DESC').first.try(:created_at)
       author.save!
+    end
+
+    if @post.is_first_post? && @post.topic && !@post.topic.private_message?
+      # Update stats of all people who replied
+      counts = Post.where(post_type: Post.types[:regular], topic_id: @post.topic_id).where('post_number > 1').group(:user_id).count
+      counts.each do |user_id, count|
+        if user_stat = UserStat.where(user_id: user_id).first
+          user_stat.update_attributes(post_count: user_stat.post_count - count)
+        end
+      end
     end
   end
 

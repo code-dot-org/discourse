@@ -1,21 +1,24 @@
 class UserProfile < ActiveRecord::Base
   belongs_to :user, inverse_of: :user_profile
 
-  WEBSITE_REGEXP = /(^$)|(^(http|https):\/\/[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,10}(([0-9]{1,5})?\/.*)?$)/ix
-
   validates :bio_raw, length: { maximum: 3000 }
-  validates :website, format: { with: WEBSITE_REGEXP }, allow_blank: true, if: Proc.new { |c| c.new_record? || c.website_changed? }
+  validates :website, url: true, allow_blank: true, if: Proc.new { |c| c.new_record? || c.website_changed? }
   validates :user, presence: true
   before_save :cook
   after_save :trigger_badges
+
+  validates :profile_background, upload_url: true, if: :profile_background_changed?
+  validates :card_background, upload_url: true, if: :card_background_changed?
+
+  validate :website_domain_validator, if: Proc.new { |c| c.new_record? || c.website_changed? }
 
   belongs_to :card_image_badge, class_name: 'Badge'
   has_many :user_profile_views, dependent: :destroy
 
   BAKED_VERSION = 1
 
-  def bio_excerpt(length=350, opts={})
-    excerpt = PrettyText.excerpt(bio_cooked, length, opts)
+  def bio_excerpt(length = 350, opts = {})
+    excerpt = PrettyText.excerpt(bio_cooked, length, opts).sub(/<br>$/, '')
     return excerpt if excerpt.blank? || (user.has_trust_level?(TrustLevel[1]) && !user.suspended?)
     PrettyText.strip_links(excerpt)
   end
@@ -58,11 +61,11 @@ class UserProfile < ActiveRecord::Base
   def self.rebake_old(limit)
     problems = []
     UserProfile.where('bio_cooked_version IS NULL OR bio_cooked_version < ?', BAKED_VERSION)
-        .limit(limit).each do |p|
+      .limit(limit).each do |p|
       begin
         p.rebake!
       rescue => e
-        problems << {profile: p, ex: e}
+        problems << { profile: p, ex: e }
       end
     end
     problems
@@ -99,6 +102,14 @@ class UserProfile < ActiveRecord::Base
     end
   end
 
+  def website_domain_validator
+    allowed_domains = SiteSetting.user_website_domains_whitelist
+    return if (allowed_domains.blank? || self.website.blank?)
+
+    domain = URI.parse(self.website).host
+    self.errors.add :base, (I18n.t('user.website.domain_not_allowed', domains: allowed_domains.split('|').join(", "))) unless allowed_domains.split('|').include?(domain)
+  end
+
 end
 
 # == Schema Information
@@ -121,4 +132,6 @@ end
 # Indexes
 #
 #  index_user_profiles_on_bio_cooked_version  (bio_cooked_version)
+#  index_user_profiles_on_card_background     (card_background)
+#  index_user_profiles_on_profile_background  (profile_background)
 #

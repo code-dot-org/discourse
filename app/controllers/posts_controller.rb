@@ -1,15 +1,37 @@
 require_dependency 'new_post_manager'
 require_dependency 'post_creator'
 require_dependency 'post_destroyer'
+require_dependency 'post_merger'
 require_dependency 'distributed_memoizer'
 require_dependency 'new_post_result_serializer'
+require_dependency 'post_locker'
 
 class PostsController < ApplicationController
 
-  # Need to be logged in for all actions here
-  before_filter :ensure_logged_in, except: [:show, :replies, :by_number, :short_link, :reply_history, :revisions, :latest_revision, :expand_embed, :markdown_id, :markdown_num, :cooked, :latest, :user_posts_feed]
+  requires_login except: [
+    :show,
+    :replies,
+    :by_number,
+    :short_link,
+    :reply_history,
+    :replyIids,
+    :revisions,
+    :latest_revision,
+    :expand_embed,
+    :markdown_id,
+    :markdown_num,
+    :cooked,
+    :latest,
+    :user_posts_feed
+  ]
 
-  skip_before_filter :preload_json, :check_xhr, only: [:markdown_id, :markdown_num, :short_link, :latest, :user_posts_feed]
+  skip_before_action :preload_json, :check_xhr, only: [
+    :markdown_id,
+    :markdown_num,
+    :short_link,
+    :latest,
+    :user_posts_feed
+  ]
 
   def markdown_id
     markdown Post.find(params[:id].to_i)
@@ -18,7 +40,7 @@ class PostsController < ApplicationController
   def markdown_num
     if params[:revision].present?
       post_revision = find_post_revision_from_topic_id
-      render text: post_revision.modifications[:raw].last, content_type: 'text/plain'
+      render plain: post_revision.modifications[:raw].last
     else
       markdown Post.find_by(topic_id: params[:topic_id].to_i, post_number: (params[:post_number] || 1).to_i)
     end
@@ -26,7 +48,7 @@ class PostsController < ApplicationController
 
   def markdown(post)
     if post && guardian.can_see?(post)
-      render text: post.raw, content_type: 'text/plain'
+      render plain: post.raw
     else
       raise Discourse::NotFound
     end
@@ -40,23 +62,23 @@ class PostsController < ApplicationController
     if params[:id] == "private_posts"
       raise Discourse::NotFound if current_user.nil?
       posts = Post.private_posts
-                  .order(created_at: :desc)
-                  .where('posts.id <= ?', last_post_id)
-                  .where('posts.id > ?', last_post_id - 50)
-                  .includes(topic: :category)
-                  .includes(user: :primary_group)
-                  .includes(:reply_to_user)
-                  .limit(50)
+        .order(created_at: :desc)
+        .where('posts.id <= ?', last_post_id)
+        .where('posts.id > ?', last_post_id - 50)
+        .includes(topic: :category)
+        .includes(user: :primary_group)
+        .includes(:reply_to_user)
+        .limit(50)
       rss_description = I18n.t("rss_description.private_posts")
     else
       posts = Post.public_posts
-                  .order(created_at: :desc)
-                  .where('posts.id <= ?', last_post_id)
-                  .where('posts.id > ?', last_post_id - 50)
-                  .includes(topic: :category)
-                  .includes(user: :primary_group)
-                  .includes(:reply_to_user)
-                  .limit(50)
+        .order(created_at: :desc)
+        .where('posts.id <= ?', last_post_id)
+        .where('posts.id > ?', last_post_id - 50)
+        .includes(topic: :category)
+        .includes(user: :primary_group)
+        .includes(:reply_to_user)
+        .limit(50)
       rss_description = I18n.t("rss_description.posts")
     end
 
@@ -91,31 +113,32 @@ class PostsController < ApplicationController
     user = fetch_user_from_params
 
     posts = Post.public_posts
-                .where(user_id: user.id)
-                .where(post_type: Post.types[:regular])
-                .order(created_at: :desc)
-                .includes(:user)
-                .includes(topic: :category)
-                .limit(50)
+      .where(user_id: user.id)
+      .where(post_type: Post.types[:regular])
+      .order(created_at: :desc)
+      .includes(:user)
+      .includes(topic: :category)
+      .limit(50)
 
     posts = posts.reject { |post| !guardian.can_see?(post) || post.topic.blank? }
 
     @posts = posts
     @title = "#{SiteSetting.title} - #{I18n.t("rss_description.user_posts", username: user.username)}"
-    @link = "#{Discourse.base_url}/users/#{user.username}/activity"
+    @link = "#{Discourse.base_url}/u/#{user.username}/activity"
     @description = I18n.t("rss_description.user_posts", username: user.username)
     render 'posts/latest', formats: [:rss]
   end
 
   def cooked
-    post = find_post_from_params
-    render json: {cooked: post.cooked}
+    render json: { cooked: find_post_from_params.cooked }
   end
 
   def raw_email
-    post = Post.find(params[:id].to_i)
+    params.require(:id)
+    post = Post.unscoped.find(params[:id].to_i)
     guardian.ensure_can_view_raw_email!(post)
-    render json: { raw_email: post.raw_email }
+    text, html = Email.extract_parts(post.raw_email)
+    render json: { raw_email: post.raw_email, text_part: text, html_part: html }
   end
 
   def short_link
@@ -127,11 +150,10 @@ class PostsController < ApplicationController
     end
 
     guardian.ensure_can_see!(post)
-    redirect_to post.url
+    redirect_to path(post.url)
   end
 
   def create
-
     @manager_params = create_params
     @manager_params[:first_post_checks] = !is_api?
 
@@ -223,25 +245,30 @@ class PostsController < ApplicationController
     render_serialized(post.reply_history(params[:max_replies].to_i, guardian), PostSerializer)
   end
 
+  def reply_ids
+    post = find_post_from_params
+    render json: post.reply_ids(guardian).to_json
+  end
+
   def destroy
     post = find_post_from_params
     RateLimiter.new(current_user, "delete_post", 3, 1.minute).performed! unless current_user.staff?
 
     if too_late_to(:delete_post, post)
-      render json: {errors: [I18n.t('too_late_to_edit')]}, status: 422
+      render json: { errors: [I18n.t('too_late_to_edit')] }, status: 422
       return
     end
 
     guardian.ensure_can_delete!(post)
 
-    destroyer = PostDestroyer.new(current_user, post, { context: params[:context] })
+    destroyer = PostDestroyer.new(current_user, post, context: params[:context])
     destroyer.destroy
 
-    render nothing: true
+    render body: nil
   end
 
   def expand_embed
-    render json: {cooked: TopicEmbed.expanded_for(find_post_from_params) }
+    render json: { cooked: TopicEmbed.expanded_for(find_post_from_params) }
   rescue
     render_json_error I18n.t('errors.embed.load_from_remote')
   end
@@ -264,13 +291,21 @@ class PostsController < ApplicationController
     raise Discourse::InvalidParameters.new(:post_ids) if posts.blank?
 
     # Make sure we can delete the posts
-    posts.each {|p| guardian.ensure_can_delete!(p) }
+    posts.each { |p| guardian.ensure_can_delete!(p) }
 
     Post.transaction do
-      posts.each {|p| PostDestroyer.new(current_user, p).destroy }
+      posts.each { |p| PostDestroyer.new(current_user, p).destroy }
     end
 
-    render nothing: true
+    render body: nil
+  end
+
+  def merge_posts
+    params.require(:post_ids)
+    posts = Post.where(id: params[:post_ids]).order(:id)
+    raise Discourse::InvalidParameters.new(:post_ids) if posts.pluck(:id) == params[:post_ids]
+    PostMerger.new(current_user, posts).merge
+    render body: nil
   end
 
   # Direct replies to this post
@@ -302,7 +337,7 @@ class PostsController < ApplicationController
     post.public_version -= 1
     post.save
 
-    render nothing: true
+    render body: nil
   end
 
   def show_revision
@@ -315,7 +350,7 @@ class PostsController < ApplicationController
     post.public_version += 1
     post.save
 
-    render nothing: true
+    render body: nil
   end
 
   def revert
@@ -355,6 +390,7 @@ class PostsController < ApplicationController
 
     post_serializer = PostSerializer.new(post, scope: guardian, root: false)
     post_serializer.draft_sequence = DraftSequence.current(current_user, topic.draft_key)
+
     link_counts = TopicLink.counts_for(guardian, topic, [post])
     post_serializer.single_post_link_counts = link_counts[post.id] if link_counts.present?
 
@@ -367,36 +403,47 @@ class PostsController < ApplicationController
     render_json_dump(result)
   end
 
-  def bookmark
+  def locked
     post = find_post_from_params
+    locker = PostLocker.new(post, current_user)
+    params[:locked] === "true" ? locker.lock : locker.unlock
+    render_json_dump(locked: post.locked?)
+  end
 
+  def bookmark
     if params[:bookmarked] == "true"
+      post = find_post_from_params
       PostAction.act(current_user, post, PostActionType.types[:bookmark])
     else
+      post_action = PostAction.find_by(post_id: params[:post_id], user_id: current_user.id)
+      raise Discourse::NotFound unless post_action
+
+      post = Post.with_deleted.find_by(id: post_action&.post_id)
+      raise Discourse::NotFound unless post
+
       PostAction.remove_act(current_user, post, PostActionType.types[:bookmark])
     end
 
-    tu = TopicUser.get(post.topic, current_user)
-
-    render_json_dump(topic_bookmarked: tu.try(:bookmarked))
+    topic_user = TopicUser.get(post.topic, current_user)
+    render_json_dump(topic_bookmarked: topic_user.try(:bookmarked))
   end
 
   def wiki
     post = find_post_from_params
     guardian.ensure_can_wiki!(post)
 
-    post.revise(current_user, { wiki: params[:wiki] })
+    post.revise(current_user, wiki: params[:wiki])
 
-    render nothing: true
+    render body: nil
   end
 
   def post_type
     guardian.ensure_can_change_post_type!
 
     post = find_post_from_params
-    post.revise(current_user, { post_type: params[:post_type].to_i })
+    post.revise(current_user, post_type: params[:post_type].to_i)
 
-    render nothing: true
+    render body: nil
   end
 
   def rebake
@@ -405,7 +452,7 @@ class PostsController < ApplicationController
     post = find_post_from_params
     post.rebake!(invalidate_oneboxes: true)
 
-    render nothing: true
+    render body: nil
   end
 
   def unhide
@@ -415,7 +462,7 @@ class PostsController < ApplicationController
 
     post.unhide!
 
-    render nothing: true
+    render body: nil
   end
 
   def flagged_posts
@@ -427,11 +474,11 @@ class PostsController < ApplicationController
     limit = [(params[:limit] || 60).to_i, 100].min
 
     posts = user_posts(guardian, user.id, offset: offset, limit: limit)
-              .where(id: PostAction.where(post_action_type_id: PostActionType.notify_flag_type_ids)
+      .where(id: PostAction.where(post_action_type_id: PostActionType.notify_flag_type_ids)
                                    .where(disagreed_at: nil)
                                    .select(:post_id))
 
-    render_serialized(posts, AdminPostSerializer)
+    render_serialized(posts, AdminUserActionSerializer)
   end
 
   def deleted_posts
@@ -444,7 +491,7 @@ class PostsController < ApplicationController
 
     posts = user_posts(guardian, user.id, offset: offset, limit: limit).where.not(deleted_at: nil)
 
-    render_serialized(posts, AdminPostSerializer)
+    render_serialized(posts, AdminUserActionSerializer)
   end
 
   protected
@@ -458,13 +505,12 @@ class PostsController < ApplicationController
       json_obj = json_obj[:post]
     end
 
-    if !success && GlobalSetting.try(:verbose_api_logging) && is_api?
+    if !success && GlobalSetting.try(:verbose_api_logging) && (is_api? || is_user_api?)
       Rails.logger.error "Error creating post via API:\n\n#{json_obj.inspect}"
     end
 
     render json: json_obj, status: (!!success) ? 200 : 422
   end
-
 
   def find_post_revision_from_params
     post_id = params[:id] || params[:post_id]
@@ -515,9 +561,9 @@ class PostsController < ApplicationController
 
   def user_posts(guardian, user_id, opts)
     posts = Post.includes(:user, :topic, :deleted_by, :user_actions)
-                .where(user_id: user_id)
-                .with_deleted
-                .order(created_at: :desc)
+      .where(user_id: user_id)
+      .with_deleted
+      .order(created_at: :desc)
 
     if guardian.user.moderator?
 
@@ -531,7 +577,7 @@ class PostsController < ApplicationController
     end
 
     posts.offset(opts[:offset])
-         .limit(opts[:limit])
+      .limit(opts[:limit])
   end
 
   def create_params
@@ -545,15 +591,24 @@ class PostsController < ApplicationController
       :auto_track,
       :typing_duration_msecs,
       :composer_open_duration_msecs,
+      :visible
     ]
+
+    if Post.permitted_create_params.present?
+      permitted.concat(Post.permitted_create_params.to_a)
+    end
 
     # param munging for WordPress
     params[:auto_track] = !(params[:auto_track].to_s == "false") if params[:auto_track]
+    params[:visible] = (params[:unlist_topic].to_s == "false") if params[:unlist_topic]
 
-    if api_key_valid?
+    if is_api?
       # php seems to be sending this incorrectly, don't fight with it
       params[:skip_validations] = params[:skip_validations].to_s == "true"
       permitted << :skip_validations
+
+      params[:import_mode] = params[:import_mode].to_s == "true"
+      permitted << :import_mode
 
       # We allow `embed_url` via the API
       permitted << :embed_url
@@ -563,7 +618,6 @@ class PostsController < ApplicationController
 
     end
 
-    params.require(:raw)
     result = params.permit(*permitted).tap do |whitelisted|
       whitelisted[:image_sizes] = params[:image_sizes]
       # TODO this does not feel right, we should name what meta_data is allowed
@@ -594,20 +648,25 @@ class PostsController < ApplicationController
 
     if usernames = result[:target_usernames]
       usernames = usernames.split(",")
-      groups = Group.mentionable(current_user).where('name in (?)', usernames).pluck('name')
+      groups = Group.messageable(current_user).where('name in (?)', usernames).pluck('name')
       usernames -= groups
+      emails = usernames.select { |user| user.match(/@/) }
+      usernames -= emails
       result[:target_usernames] = usernames.join(",")
+      result[:target_emails] = emails.join(",")
       result[:target_group_names] = groups.join(",")
     end
 
-    result
+    result.permit!
+    result.to_h
   end
 
   def signature_for(args)
     "post##" << Digest::SHA1.hexdigest(args
+      .to_h
       .to_a
       .concat([["user", current_user.id]])
-      .sort{|x,y| x[0] <=> y[0]}.join do |x,y|
+      .sort { |x, y| x[0] <=> y[0] }.join do |x, y|
         "#{x}:#{y}"
       end)
   end
@@ -636,8 +695,11 @@ class PostsController < ApplicationController
     finder = finder.with_deleted if current_user.try(:staff?)
     post = finder.first
     raise Discourse::NotFound unless post
+
     # load deleted topic
     post.topic = Topic.with_deleted.find(post.topic_id) if current_user.try(:staff?)
+    raise Discourse::NotFound unless post.topic
+
     guardian.ensure_can_see!(post)
     post
   end

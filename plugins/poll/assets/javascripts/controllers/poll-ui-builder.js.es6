@@ -2,7 +2,7 @@ import { default as computed, observes } from 'ember-addons/ember-computed-decor
 import InputValidation from 'discourse/models/input-validation';
 
 export default Ember.Controller.extend({
-  needs: ['modal'],
+  regularPollType: 'regular',
   numberPollType: 'number',
   multiplePollType: 'multiple',
 
@@ -11,14 +11,20 @@ export default Ember.Controller.extend({
     this._setupPoll();
   },
 
-  @computed("numberPollType", "multiplePollType")
-  pollTypes(numberPollType, multiplePollType) {
+  @computed("regularPollType", "numberPollType", "multiplePollType")
+  pollTypes(regularPollType, numberPollType, multiplePollType) {
     let types = [];
 
+    types.push({ name: I18n.t("poll.ui_builder.poll_type.regular"), value: regularPollType });
     types.push({ name: I18n.t("poll.ui_builder.poll_type.number"), value: numberPollType });
     types.push({ name: I18n.t("poll.ui_builder.poll_type.multiple"), value: multiplePollType });
 
     return types;
+  },
+
+  @computed("pollType", "regularPollType")
+  isRegular(pollType, regularPollType) {
+    return pollType === regularPollType;
   },
 
   @computed("pollType", "pollOptionsCount", "multiplePollType")
@@ -31,9 +37,9 @@ export default Ember.Controller.extend({
     return pollType === numberPollType;
   },
 
-  @computed("isNumber", "isMultiple")
-  showMinMax(isNumber, isMultiple) {
-    return isNumber || isMultiple;
+  @computed("isRegular")
+  showMinMax(isRegular) {
+    return !isRegular;
   },
 
   @computed("pollOptions")
@@ -62,9 +68,9 @@ export default Ember.Controller.extend({
     }
   },
 
-  @computed("isMultiple", "isNumber", "pollOptionsCount")
-  pollMinOptions(isMultiple, isNumber, count) {
-    if (!isMultiple && !isNumber) return;
+  @computed("isRegular", "isMultiple", "isNumber", "pollOptionsCount")
+  pollMinOptions(isRegular, isMultiple, isNumber, count) {
+    if (isRegular) return;
 
     if (isMultiple) {
       return this._comboboxOptions(1, count + 1);
@@ -73,15 +79,18 @@ export default Ember.Controller.extend({
     }
   },
 
-  @computed("isMultiple", "isNumber", "pollOptionsCount", "pollMin", "pollStep")
-  pollMaxOptions(isMultiple, isNumber, count, pollMin, pollStep) {
-    if (!isMultiple && !isNumber) return;
+  @computed("isRegular", "isMultiple", "isNumber", "pollOptionsCount", "pollMin", "pollStep")
+  pollMaxOptions(isRegular, isMultiple, isNumber, count, pollMin, pollStep) {
+    if (isRegular) return;
     const pollMinInt = parseInt(pollMin) || 1;
 
     if (isMultiple) {
       return this._comboboxOptions(pollMinInt + 1, count + 1);
     } else if (isNumber) {
-      const pollStepInt = parseInt(pollStep) || 1;
+      let pollStepInt = parseInt(pollStep, 10);
+      if (pollStepInt < 1) {
+        pollStepInt = 1;
+      }
       return this._comboboxOptions(pollMinInt + 1, pollMinInt + (this.siteSettings.poll_maximum_options * pollStepInt));
     }
   },
@@ -103,10 +112,15 @@ export default Ember.Controller.extend({
       pollHeader += ` name=poll${match.length + 1}`;
     };
 
+    let step = pollStep;
+    if (step < 1) {
+      step = 1;
+    }
+
     if (pollType) pollHeader += ` type=${pollType}`;
     if (pollMin && showMinMax) pollHeader += ` min=${pollMin}`;
     if (pollMax) pollHeader += ` max=${pollMax}`;
-    if (isNumber) pollHeader += ` step=${pollStep}`;
+    if (isNumber) pollHeader += ` step=${step}`;
     if (publicPoll) pollHeader += ' public=true';
     pollHeader += ']';
     output += `${pollHeader}\n`;
@@ -121,9 +135,31 @@ export default Ember.Controller.extend({
     return output;
   },
 
-  @computed("pollOptionsCount", "isNumber")
-  disableInsert(count, isNumber) {
-    return isNumber ? false : (count < 2);
+  @computed("pollOptionsCount", "isRegular", "isMultiple", "isNumber", "pollMin", "pollMax")
+  disableInsert(count, isRegular, isMultiple, isNumber, pollMin, pollMax) {
+    return (isRegular && count < 2) || (isMultiple && count < pollMin && pollMin >= pollMax) || (isNumber ? false : (count < 2));
+  },
+
+  @computed("pollMin", "pollMax")
+  minMaxValueValidation(pollMin, pollMax) {
+    let options = { ok: true };
+
+    if (pollMin >= pollMax) {
+      options = { failed: true, reason: I18n.t("poll.ui_builder.help.invalid_values") };
+    }
+
+    return InputValidation.create(options);
+  },
+
+  @computed("pollStep")
+  minStepValueValidation(pollStep) {
+    let options = { ok: true };
+
+    if (pollStep < 1) {
+      options = { failed: true, reason: I18n.t("poll.ui_builder.help.min_step_value") };
+    }
+
+    return InputValidation.create(options);
   },
 
   @computed("disableInsert")

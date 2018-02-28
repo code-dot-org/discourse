@@ -3,7 +3,6 @@ require 'nokogiri'
 require 'erb'
 require_dependency 'url_helper'
 require_dependency 'excerpt_parser'
-require_dependency 'post'
 require_dependency 'discourse_tagging'
 require_dependency 'pretty_text/helpers'
 
@@ -50,29 +49,38 @@ module PrettyText
     end
   end
 
+  def self.ctx_load_manifest(ctx, name)
+    manifest = File.read("#{Rails.root}/app/assets/javascripts/#{name}")
+    root_path = "#{Rails.root}/app/assets/javascripts/"
+
+    manifest.each_line do |l|
+      l = l.chomp
+      if l =~ /\/\/= require (\.\/)?(.*)$/
+        apply_es6_file(ctx, root_path, Regexp.last_match[2])
+      elsif l =~ /\/\/= require_tree (\.\/)?(.*)$/
+        path = Regexp.last_match[2]
+        Dir["#{root_path}/#{path}/**"].sort.each do |f|
+          apply_es6_file(ctx, root_path, f.sub(root_path, '')[1..-1].sub(/\.js.es6$/, ''))
+        end
+      end
+    end
+  end
+
   def self.create_es6_context
     ctx = MiniRacer::Context.new(timeout: 15000)
 
     ctx.eval("window = {}; window.devicePixelRatio = 2;") # hack to make code think stuff is retina
 
     if Rails.env.development? || Rails.env.test?
-      ctx.attach("console.log", proc{|l| p l })
+      ctx.attach("console.log", proc { |l| p l })
+      ctx.eval('window.console = console;')
     end
 
-    ctx_load(ctx, "vendor/assets/javascripts/loader.js")
+    ctx_load(ctx, "#{Rails.root}/app/assets/javascripts/discourse-loader.js")
     ctx_load(ctx, "vendor/assets/javascripts/lodash.js")
-    manifest = File.read("#{Rails.root}/app/assets/javascripts/pretty-text-bundle.js")
+    ctx_load_manifest(ctx, "pretty-text-bundle.js")
+    ctx_load_manifest(ctx, "markdown-it-bundle.js")
     root_path = "#{Rails.root}/app/assets/javascripts/"
-    manifest.each_line do |l|
-      if l =~ /\/\/= require (\.\/)?(.*)$/
-        apply_es6_file(ctx, root_path, Regexp.last_match[2])
-      elsif l =~ /\/\/= require_tree (\.\/)?(.*)$/
-        path = Regexp.last_match[2]
-        Dir["#{root_path}/#{path}/**"].each do |f|
-          apply_es6_file(ctx, root_path, f.sub(root_path, '')[1..-1].sub(/\.js.es6$/, ''))
-        end
-      end
-    end
 
     apply_es6_file(ctx, root_path, "discourse/lib/utilities")
 
@@ -93,6 +101,10 @@ module PrettyText
       end
     end
 
+    DiscoursePluginRegistry.vendored_pretty_text.each do |vpt|
+      ctx.eval(File.read(vpt))
+    end
+
     ctx
   end
 
@@ -110,11 +122,12 @@ module PrettyText
 
   def self.reset_context
     @ctx_init.synchronize do
+      @ctx&.dispose
       @ctx = nil
     end
   end
 
-  def self.markdown(text, opts={})
+  def self.markdown(text, opts = {})
     # we use the exact same markdown converter as the client
     # TODO: use the same extensions on both client and server (in particular the template for mentions)
     baked = nil
@@ -128,52 +141,70 @@ module PrettyText
         CDN: Rails.configuration.action_controller.asset_host,
       }
 
-      if SiteSetting.enable_s3_uploads?
-        if SiteSetting.s3_cdn_url.present?
-          paths[:S3CDN] = SiteSetting.s3_cdn_url
+      if SiteSetting.Upload.enable_s3_uploads
+        if SiteSetting.Upload.s3_cdn_url.present?
+          paths[:S3CDN] = SiteSetting.Upload.s3_cdn_url
         end
         paths[:S3BaseUrl] = Discourse.store.absolute_base_url
       end
 
-      context.eval("__optInput = {};")
-      context.eval("__optInput.siteSettings = #{SiteSetting.client_settings_json};")
-      context.eval("__paths = #{paths.to_json};")
+      custom_emoji = {}
+      Emoji.custom.map { |e| custom_emoji[e.name] = e.url }
+
+      buffer = <<~JS
+        __optInput = {};
+        __optInput.siteSettings = #{SiteSetting.client_settings_json};
+        __paths = #{paths.to_json};
+        __optInput.getURL = __getURL;
+        __optInput.getCurrentUser = __getCurrentUser;
+        __optInput.lookupAvatar = __lookupAvatar;
+        __optInput.lookupPrimaryUserGroup = __lookupPrimaryUserGroup;
+        __optInput.formatUsername = __formatUsername;
+        __optInput.getTopicInfo = __getTopicInfo;
+        __optInput.categoryHashtagLookup = __categoryLookup;
+        __optInput.mentionLookup = __mentionLookup;
+        __optInput.customEmoji = #{custom_emoji.to_json};
+        __optInput.emojiUnicodeReplacer = __emojiUnicodeReplacer;
+        __optInput.lookupInlineOnebox = __lookupInlineOnebox;
+        __optInput.lookupImageUrls = __lookupImageUrls;
+        __optInput.censoredWords = #{WordWatcher.words_for_action(:censor).join('|').to_json};
+      JS
 
       if opts[:topicId]
-        context.eval("__optInput.topicId = #{opts[:topicId].to_i};")
+        buffer << "__optInput.topicId = #{opts[:topicId].to_i};\n"
       end
 
-      context.eval("__optInput.userId = #{opts[:user_id].to_i};") if opts[:user_id]
+      if opts[:user_id]
+        buffer << "__optInput.userId = #{opts[:user_id].to_i};\n"
+      end
 
-      context.eval("__optInput.getURL = __getURL;")
-      context.eval("__optInput.getCurrentUser = __getCurrentUser;")
-      context.eval("__optInput.lookupAvatar = __lookupAvatar;")
-      context.eval("__optInput.getTopicInfo = __getTopicInfo;")
-      context.eval("__optInput.categoryHashtagLookup = __categoryLookup;")
-      context.eval("__optInput.mentionLookup = __mentionLookup;")
+      buffer << "__textOptions = __buildOptions(__optInput);\n"
 
-      custom_emoji = {}
-      Emoji.custom.map {|e| custom_emoji[e.name] = e.url}
-      context.eval("__optInput.customEmoji = #{custom_emoji.to_json};")
+      buffer << ("__pt = new __PrettyText(__textOptions);")
 
-      opts = context.eval("__pt = new __PrettyText(__buildOptions(__optInput));")
+      # Be careful disabling sanitization. We allow for custom emails
+      if opts[:sanitize] == false
+        buffer << ('__pt.disableSanitizer();')
+      end
+
+      opts = context.eval(buffer)
 
       DiscourseEvent.trigger(:markdown_context, context)
       baked = context.eval("__pt.cook(#{text.inspect})")
     end
 
-    if baked.blank? && !(opts || {})[:skip_blank_test]
-      # we may have a js engine issue
-      test = markdown("a", skip_blank_test: true)
-      if test.blank?
-        Rails.logger.warn("Markdown engine appears to have crashed, resetting context")
-        reset_context
-        opts ||= {}
-        opts = opts.dup
-        opts[:skip_blank_test] = true
-        baked = markdown(text, opts)
-      end
-    end
+    # if baked.blank? && !(opts || {})[:skip_blank_test]
+    #   # we may have a js engine issue
+    #   test = markdown("a", skip_blank_test: true)
+    #   if test.blank?
+    #     Rails.logger.warn("Markdown engine appears to have crashed, resetting context")
+    #     reset_context
+    #     opts ||= {}
+    #     opts = opts.dup
+    #     opts[:skip_blank_test] = true
+    #     baked = markdown(text, opts)
+    #   end
+    # end
 
     baked
   end
@@ -194,13 +225,14 @@ module PrettyText
     end
   end
 
-  def self.cook(text, opts={})
+  def self.cook(text, opts = {})
     options = opts.dup
 
     # we have a minor inconsistency
     options[:topicId] = opts[:topic_id]
 
     working_text = text.dup
+
     sanitized = markdown(working_text, options)
 
     doc = Nokogiri::HTML.fragment(sanitized)
@@ -209,7 +241,7 @@ module PrettyText
       add_rel_nofollow_to_user_content(doc)
     end
 
-    if SiteSetting.enable_s3_uploads && SiteSetting.s3_cdn_url.present?
+    if SiteSetting.Upload.enable_s3_uploads && SiteSetting.Upload.s3_cdn_url.present?
       add_s3_cdn(doc)
     end
 
@@ -239,57 +271,54 @@ module PrettyText
         if !uri.host.present? ||
            uri.host == site_uri.host ||
            uri.host.ends_with?("." << site_uri.host) ||
-           whitelist.any?{|u| uri.host == u || uri.host.ends_with?("." << u)}
+           whitelist.any? { |u| uri.host == u || uri.host.ends_with?("." << u) }
           # we are good no need for nofollow
         else
-          l["rel"] = "nofollow"
+          l["rel"] = "nofollow noopener"
         end
       rescue URI::InvalidURIError, URI::InvalidComponentError
         # add a nofollow anyway
-        l["rel"] = "nofollow"
+        l["rel"] = "nofollow noopener"
       end
     end
   end
 
-  class DetectedLink
-    attr_accessor :is_quote, :url
-
-    def initialize(url, is_quote=false)
-      @url = url
-      @is_quote = is_quote
-    end
-  end
-
+  class DetectedLink < Struct.new(:url, :is_quote); end
 
   def self.extract_links(html)
     links = []
     doc = Nokogiri::HTML.fragment(html)
+
     # remove href inside quotes & elided part
-    doc.css("aside.quote a, .elided a").each { |l| l["href"] = "" }
+    doc.css("aside.quote a, .elided a").each { |a| a["href"] = "" }
 
-    # extract all links from the post
-    doc.css("a").each { |l|
-      unless l["href"].blank? || "#".freeze == l["href"][0]
-        links << DetectedLink.new(l["href"])
+    # extract all links
+    doc.css("a").each do |a|
+      if a["href"].present? && a["href"][0] != "#".freeze
+        links << DetectedLink.new(a["href"], false)
       end
-    }
+    end
 
-    # extract links to quotes
-    doc.css("aside.quote[data-topic]").each do |a|
-      topic_id = a['data-topic']
-
-      url = "/t/topic/#{topic_id}"
-      if post_number = a['data-post']
-        url << "/#{post_number}"
+    # extract quotes
+    doc.css("aside.quote[data-topic]").each do |aside|
+      if aside["data-topic"].present?
+        url = "/t/topic/#{aside["data-topic"]}"
+        url << "/#{aside["data-post"]}" if aside["data-post"].present?
+        links << DetectedLink.new(url, true)
       end
+    end
 
-      links << DetectedLink.new(url, true)
+    # extract Youtube links
+    doc.css("div[data-youtube-id]").each do |div|
+      if div["data-youtube-id"].present?
+        links << DetectedLink.new("https://www.youtube.com/watch?v=#{div['data-youtube-id']}", false)
+      end
     end
 
     links
   end
 
-  def self.excerpt(html, max_length, options={})
+  def self.excerpt(html, max_length, options = {})
     # TODO: properly fix this HACK in ExcerptParser without introducing XSS
     doc = Nokogiri::HTML.fragment(html)
     strip_image_wrapping(doc)
@@ -303,7 +332,7 @@ module PrettyText
 
     # If the user is not basic, strip links from their bio
     fragment = Nokogiri::HTML.fragment(string)
-    fragment.css('a').each {|a| a.replace(a.inner_html) }
+    fragment.css('a').each { |a| a.replace(a.inner_html) }
     fragment.to_html
   end
 

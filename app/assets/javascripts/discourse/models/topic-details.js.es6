@@ -18,13 +18,6 @@ const TopicDetails = RestModel.extend({
       });
     }
 
-    if (details.suggested_topics) {
-      const store = this.store;
-      details.suggested_topics = details.suggested_topics.map(function (st) {
-        return store.createRecord('topic', st);
-      });
-    }
-
     if (details.participants) {
       details.participants = details.participants.map(function (p) {
         p.topic = topic;
@@ -72,7 +65,7 @@ const TopicDetails = RestModel.extend({
       type: 'PUT',
       data: { name: name }
     }).then(() => {
-      groups.removeObject(groups.findProperty('name', name));
+      groups.removeObject(groups.findBy('name', name));
     });
   },
 
@@ -84,7 +77,7 @@ const TopicDetails = RestModel.extend({
       type: 'PUT',
       data: { username: username }
     }).then(() => {
-      users.removeObject(users.findProperty('username', username));
+      users.removeObject(users.findBy('username', username));
     });
   }
 });

@@ -1,6 +1,6 @@
 .caps-lock-warning {
   color: $danger;
-  font-size: 0.857em;
+  font-size: $font-down-1;
   font-weight: bold;
 }
 
@@ -12,6 +12,18 @@
   display: none;
 }
 
+#login-form {
+  a {
+    color: dark-light-choose($primary-high, $secondary-low);
+  }
+  td {
+    padding-right: 5px;
+  }
+}
+
+#new-account-link {
+  cursor: pointer;
+}
 
 $label-width: 92px;
 $input-width: 220px;
@@ -27,12 +39,18 @@ $input-width: 220px;
     }
   }
 
+  .disclaimer {
+    font-size: $font-down-1;
+    color: dark-light-choose($primary-medium, $secondary-medium);
+    clear: both;
+  }
+
   .user-field.confirm {
     margin-top: 20px;
   }
 
   .user-field {
-    label {
+    > label {
       width: $label-width;
       float: left;
     }
@@ -49,21 +67,63 @@ $input-width: 220px;
         font-weight: normal;
         float: auto;
       }
-      p {
-        color: dark-light-choose(scale-color($primary, $lightness: 50%), scale-color($secondary, $lightness: 50%));
+      .instructions {
+        color: dark-light-choose($primary-medium, $secondary-medium);
         margin: 0;
+        font-size: $font-down-1;
+        font-weight: normal;
+        line-height: $line-height-medium;
       }
     }
     clear: both;
   }
 }
 
+.password-reset {
+  .instructions {
+    label {
+      color: dark-light-choose($primary-medium, $secondary-medium);
+    }
+  }
+}
+
+.invites-show {
+  .two-col {
+    position: relative;
+  }
+
+  .col-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+  }
+
+  form {
+    margin-top: 24px;
+    button.btn-primary {
+      margin-top: 10px;
+    }
+    label:not(.checkbox-label) {
+      font-weight: bold;
+    }
+    .controls, .input {
+      margin-bottom: 10px;
+    }
+    .instructions {
+      color: dark-light-choose($primary-medium, $secondary-medium);
+      margin: 0;
+      font-size: $font-down-1;
+      font-weight: normal;
+      line-height: $line-height-medium;
+    }
+  }
+}
+
+
 // alternate login / create new account buttons should be de-emphasized
 
 button#login-link, button#new-account-link
 {
   background: transparent;
-  padding-left: 0;
-  margin-left: 20px;
-  color: dark-light-choose(scale-color($primary, $lightness: 35%), scale-color($secondary, $lightness: 65%));
+  color: dark-light-choose($primary-high, $secondary-low);
 }

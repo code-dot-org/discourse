@@ -23,8 +23,9 @@ class PostRevisionSerializer < ApplicationSerializer
              :body_changes,
              :title_changes,
              :user_changes,
-             :tags_changes
-
+             :tags_changes,
+             :wiki,
+             :can_edit
 
   # Creates a field called field_name_changes with previous and
   # current members if a field has changed in this revision
@@ -57,8 +58,8 @@ class PostRevisionSerializer < ApplicationSerializer
 
   def previous_revision
     @previous_revision ||= revisions.select { |r| r["revision"] >= first_revision }
-                                    .select { |r| r["revision"] < current_revision }
-                                    .last.try(:[], "revision")
+      .select { |r| r["revision"] < current_revision }
+      .last.try(:[], "revision")
   end
 
   def current_revision
@@ -67,8 +68,8 @@ class PostRevisionSerializer < ApplicationSerializer
 
   def next_revision
     @next_revision ||= revisions.select { |r| r["revision"] <= last_revision }
-                                .select { |r| r["revision"] > current_revision }
-                                .first.try(:[], "revision")
+      .select { |r| r["revision"] > current_revision }
+      .first.try(:[], "revision")
   end
 
   def last_revision
@@ -93,6 +94,14 @@ class PostRevisionSerializer < ApplicationSerializer
 
   def avatar_template
     user.avatar_template
+  end
+
+  def wiki
+    object.post.wiki
+  end
+
+  def can_edit
+    scope.can_edit?(object.post)
   end
 
   def edit_reason
@@ -155,7 +164,7 @@ class PostRevisionSerializer < ApplicationSerializer
   end
 
   def include_tags_changes?
-    SiteSetting.tagging_enabled && previous["tags"] != current["tags"]
+    scope.can_see_tags?(topic) && previous["tags"] != current["tags"]
   end
 
   protected
@@ -188,14 +197,11 @@ class PostRevisionSerializer < ApplicationSerializer
 
       # Retrieve any `tracked_topic_fields`
       PostRevisor.tracked_topic_fields.each_key do |field|
-        if topic.respond_to?(field)
-          latest_modifications[field.to_s] = [topic.send(field)]
-        end
+        latest_modifications[field.to_s] = [topic.send(field)] if topic.respond_to?(field)
       end
 
-      if SiteSetting.tagging_enabled
-        latest_modifications["tags"] = [post.topic.tags.map(&:name)]
-      end
+      latest_modifications["featured_link"] = [post.topic.featured_link] if SiteSetting.topic_featured_link_enabled
+      latest_modifications["tags"] = [topic.tags.pluck(:name)] if scope.can_see_tags?(topic)
 
       post_revisions << PostRevision.new(
         number: post_revisions.last.number + 1,

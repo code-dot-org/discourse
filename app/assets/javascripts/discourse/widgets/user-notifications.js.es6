@@ -1,17 +1,21 @@
 import { createWidget } from 'discourse/widgets/widget';
 import { headerHeight } from 'discourse/components/site-header';
 import { h } from 'virtual-dom';
+import DiscourseURL from 'discourse/lib/url';
+import { ajax } from 'discourse/lib/ajax';
 
 export default createWidget('user-notifications', {
   tagName: 'div.notifications',
   buildKey: () => 'user-notifications',
 
   defaultState() {
-    return { notifications: [], loading: false };
+    return { notifications: [], loading: false, loaded: false };
   },
 
-  notificationsChanged() {
-    this.refreshNotifications(this.state);
+  markRead() {
+    ajax('/notifications/mark-read', { method: 'PUT' }).then(() => {
+      this.refreshNotifications(this.state);
+    });
   },
 
   refreshNotifications(state) {
@@ -49,12 +53,17 @@ export default createWidget('user-notifications', {
       state.notifications = [];
     }).finally(() => {
       state.loading = false;
+      state.loaded = true;
+      this.sendWidgetAction('notificationsLoaded', {
+        notifications: state.notifications,
+        markRead: () => this.markRead()
+      });
       this.scheduleRerender();
     });
   },
 
   html(attrs, state) {
-    if (!state.notifications.length) {
+    if (!state.loaded) {
       this.refreshNotifications(state);
     }
 
@@ -64,16 +73,20 @@ export default createWidget('user-notifications', {
     } else if (state.notifications.length) {
 
       const notificationItems = state.notifications.map(n => this.attach('notification-item', n));
-      const href = `${attrs.path}/notifications`;
 
       result.push(h('hr'));
 
       const items = [notificationItems];
 
-      if (notificationItems.length > 0) {
+      if (notificationItems.length > 5) {
         items.push(
-          h('li.read.last.heading', h('a', { attributes: { href } }, [I18n.t('notifications.more'), '...'])),
-          h('hr')
+          h('li.read.last.heading.show-all',
+            this.attach('button', {
+              title: 'notifications.more',
+              icon: 'chevron-down',
+              action: 'showAllNotifications',
+              className: 'btn'
+            }))
         );
       }
 
@@ -81,5 +94,9 @@ export default createWidget('user-notifications', {
     }
 
     return result;
+  },
+
+  showAllNotifications() {
+    DiscourseURL.routeTo(`${this.attrs.path}/notifications`);
   }
 });

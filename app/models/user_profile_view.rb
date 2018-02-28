@@ -3,10 +3,11 @@ class UserProfileView < ActiveRecord::Base
 
   belongs_to :user_profile
 
-  def self.add(user_profile_id, ip, user_id=nil, at=nil, skip_redis=false)
+  def self.add(user_profile_id, ip, user_id = nil, at = nil, skip_redis = false)
     at ||= Time.zone.now
     redis_key = "user-profile-view:#{user_profile_id}:#{at.to_date}"
     if user_id
+      return if user_id < 1
       redis_key << ":user-#{user_id}"
     else
       redis_key << ":ip-#{ip}"
@@ -40,7 +41,7 @@ class UserProfileView < ActiveRecord::Base
     end
   end
 
-  def self.profile_views_by_day(start_date, end_date, group_id=nil)
+  def self.profile_views_by_day(start_date, end_date, group_id = nil)
     profile_views = self.where("viewed_at >= ? AND viewed_at < ?", start_date, end_date + 1.day)
     if group_id
       profile_views = profile_views.joins("INNER JOIN users ON users.id = user_profile_views.user_id")

@@ -2,6 +2,50 @@ require 'rails_helper'
 
 describe Report do
 
+  describe "counting" do
+    describe "requests" do
+      before do
+        freeze_time DateTime.parse('2017-03-01 12:00')
+
+        # today, an incomplete day:
+        ApplicationRequest.create(date: 0.days.ago.to_time, req_type: ApplicationRequest.req_types['http_total'], count: 1)
+
+        # 60 complete days:
+        30.times do |i|
+          ApplicationRequest.create(date: (i + 1).days.ago.to_time, req_type: ApplicationRequest.req_types['http_total'], count: 10)
+        end
+        30.times do |i|
+          ApplicationRequest.create(date: (31 + i).days.ago.to_time, req_type: ApplicationRequest.req_types['http_total'], count: 100)
+        end
+      end
+
+      subject(:json) { Report.find("http_total_reqs").as_json }
+
+      it "counts the correct records" do
+        expect(json[:data].size).to eq(31) # today and 30 full days
+        expect(json[:data][0..-2].sum { |d| d[:y] }).to eq(300)
+        expect(json[:prev30Days]).to eq(3000)
+      end
+    end
+
+    describe "topics" do
+      before do
+        freeze_time DateTime.parse('2017-03-01 12:00')
+
+        ((0..32).to_a + [60, 61, 62, 63]).each do |i|
+          Fabricate(:topic, created_at: i.days.ago)
+        end
+      end
+
+      subject(:json) { Report.find("topics").as_json }
+
+      it "counts the correct records" do
+        expect(json[:data].size).to eq(31)
+        expect(json[:prev30Days]).to eq(3)
+      end
+    end
+  end
+
   describe 'visits report' do
     let(:report) { Report.find('visits') }
 
@@ -40,14 +84,14 @@ describe Report do
 
       context "with #{pluralized}" do
         before(:each) do
-          Timecop.freeze
+          freeze_time
           fabricator = case arg
-          when :signup
-            :user
-          when :email
-            :email_log
+                       when :signup
+                         :user
+                       when :email
+                         :email_log
           else
-            arg
+                         arg
           end
           Fabricate(fabricator)
           Fabricate(fabricator, created_at: 1.hours.ago)
@@ -57,23 +101,21 @@ describe Report do
           Fabricate(fabricator, created_at: 30.days.ago)
           Fabricate(fabricator, created_at: 35.days.ago)
         end
-        after(:each) { Timecop.return }
 
-        context 'returns a report with data'
-          it "returns today's data" do
-            expect(report.data.select { |v| v[:x].today? }).to be_present
-          end
+        it "returns today's data" do
+          expect(report.data.select { |v| v[:x].today? }).to be_present
+        end
 
-          it 'returns total data' do
-            expect(report.total).to eq 7
-          end
+        it 'returns total data' do
+          expect(report.total).to eq 7
+        end
 
-          it "returns previous 30 day's data" do
-            expect(report.prev30Days).to be_present
-          end
+        it "returns previous 30 day's data" do
+          expect(report.prev30Days).to be_present
         end
       end
     end
+  end
 
   [:http_total, :http_2xx, :http_background, :http_3xx, :http_4xx, :http_5xx, :page_view_crawler, :page_view_logged_in, :page_view_anon].each do |request_type|
     describe "#{request_type} request reports" do
@@ -87,15 +129,13 @@ describe Report do
 
       context "with #{request_type}" do
         before(:each) do
-          Timecop.freeze
+          freeze_time
           ApplicationRequest.create(date: 35.days.ago.to_time, req_type: ApplicationRequest.req_types[request_type.to_s], count: 35)
           ApplicationRequest.create(date: 7.days.ago.to_time, req_type: ApplicationRequest.req_types[request_type.to_s], count: 8)
           ApplicationRequest.create(date: Date.today.to_time, req_type: ApplicationRequest.req_types[request_type.to_s], count: 1)
           ApplicationRequest.create(date: 1.day.ago.to_time, req_type: ApplicationRequest.req_types[request_type.to_s], count: 2)
           ApplicationRequest.create(date: 2.days.ago.to_time, req_type: ApplicationRequest.req_types[request_type.to_s], count: 3)
         end
-        after(:each) { Timecop.return }
-
 
         context 'returns a report with data' do
           it "returns expected number of recoords" do
@@ -203,11 +243,22 @@ describe Report do
 
       it "returns a report with data" do
         expect(report.data).to be_present
-        expect(report.data.find {|d| d[:x] == TrustLevel[0]}[:y]).to eq 3
-        expect(report.data.find {|d| d[:x] == TrustLevel[2]}[:y]).to eq 2
-        expect(report.data.find {|d| d[:x] == TrustLevel[4]}[:y]).to eq 1
+        expect(report.data.find { |d| d[:x] == TrustLevel[0] }[:y]).to eq 3
+        expect(report.data.find { |d| d[:x] == TrustLevel[2] }[:y]).to eq 2
+        expect(report.data.find { |d| d[:x] == TrustLevel[4] }[:y]).to eq 1
       end
     end
   end
-end
 
+  describe 'posts counts' do
+    it "only counts regular posts" do
+      post = Fabricate(:post)
+      Fabricate(:moderator_post, topic: post.topic)
+      Fabricate.build(:post, post_type: Post.types[:whisper], topic: post.topic)
+      post.topic.add_small_action(Fabricate(:admin), "invited_group", 'coolkids')
+      r = Report.find('posts')
+      expect(r.total).to eq(1)
+      expect(r.data[0][:y]).to eq(1)
+    end
+  end
+end

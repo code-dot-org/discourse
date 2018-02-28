@@ -103,7 +103,7 @@ const TopicTrackingState = Discourse.Model.extend({
 
   notify(data) {
     if (!this.newIncoming) { return; }
-    if (data.archetype === "private_message") { return; }
+    if (data.payload && data.payload.archetype === "private_message") { return; }
 
     const filter = this.get("filter");
     const filterCategory = this.get("filterCategory");
@@ -117,8 +117,8 @@ const TopicTrackingState = Discourse.Model.extend({
     }
 
     if (filter === defaultHomepage()) {
-      const suppressed_from_homepage_category_ids = Discourse.Site.currentProp("suppressed_from_homepage_category_ids");
-      if (_.include(suppressed_from_homepage_category_ids, data.payload.category_id)) {
+      const suppressed_from_latest_category_ids = Discourse.Site.currentProp("suppressed_from_latest_category_ids");
+      if (_.include(suppressed_from_latest_category_ids, data.payload.category_id)) {
         return;
       }
     }
@@ -179,8 +179,7 @@ const TopicTrackingState = Discourse.Model.extend({
     delete this.states["t" + topic_id];
   },
 
-  // If we have a cached topic list, we can update it from our tracking
-  // information.
+  // If we have a cached topic list, we can update it from our tracking information.
   updateTopics(topics) {
     if (Em.isEmpty(topics)) { return; }
 
@@ -283,7 +282,7 @@ const TopicTrackingState = Discourse.Model.extend({
   },
 
   incrementMessageCount() {
-    this.set("messageCount", this.get("messageCount") + 1);
+    this.incrementProperty("messageCount");
   },
 
   countNew(category_id) {
@@ -358,8 +357,7 @@ const TopicTrackingState = Discourse.Model.extend({
     const states = this.states;
     const idMap = Discourse.Category.idMap();
 
-    // I am taking some shortcuts here to avoid 500 gets for
-    // a large list
+    // I am taking some shortcuts here to avoid 500 gets for a large list
     if (data) {
       _.each(data,topic => {
         var category = idMap[topic.category_id];
